@@ -3734,15 +3734,26 @@ def _template_node_select(*, type, value, select_passthrough):
 
 
 def km_3d_view_tool_maxline(params):
-    # BlenderViz: Max Line tool (`viz_maxline.py`): a click starts a line at that point.
-    return (
-        "3D View Tool: Object, Max Line",
-        {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
-        {"items": [
-            ("curve.maxline_draw", {"type": params.tool_mouse, "value": 'PRESS'},
-             {"properties": [("from_tool", True)]}),
-        ]},
-    )
+    # BlenderViz: Max Line tools (`editcurve_maxline.cc`, `viz_maxline.py`): a click starts the
+    # operator there.
+    return [
+        (
+            "3D View Tool: Object, Max " + label,
+            {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
+            {"items": [
+                (idname, {"type": params.tool_mouse, "value": 'PRESS'},
+                 {"properties": [("from_tool", True)]}),
+            ]},
+        )
+        for label, idname in (
+            ("Line", "curve.maxline_draw"),
+            ("Curve", "curve.maxline_freehand"),
+            ("Circle", "curve.maxline_circle"),
+            ("Arc", "curve.maxline_arc"),
+            ("Rectangle", "curve.maxline_rectangle"),
+            ("NGon", "curve.maxline_ngon"),
+        )
+    ]
 
 
 def km_3d_view_tool_interactive_add(params):
@@ -3875,7 +3886,7 @@ def generate_keymaps_impl(params=None):
         # Tool System.
         km_3d_view_tool_select(params),
         km_3d_view_tool_interactive_add(params),
-        km_3d_view_tool_maxline(params),
+        *km_3d_view_tool_maxline(params),
         km_image_editor_tool_uv_select(params),
         km_sequencer_editor_tool_select_preview(params),
         km_sequencer_editor_tool_select_timeline(params),

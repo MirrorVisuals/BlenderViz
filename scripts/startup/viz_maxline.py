@@ -2114,6 +2114,24 @@ def ngon_knots(center, ax, ay, radius, sides, inscribed=True, corner_radius=0.0)
 # Shape tools
 # ---------------------------------------------------------------------------
 
+# Shape operator property -> Max Line setting it takes when started from a tool.
+SHAPE_SETTINGS = {
+    "corner_radius": "shape_corner_radius",
+    "from_center": "rect_from_center",
+    "sides": "ngon_sides",
+    "inscribed": "ngon_inscribed",
+    "method": "arc_method",
+    "pie_slice": "arc_pie",
+}
+
+
+def apply_shape_settings(op, cfg):
+    props = op.bl_rna.properties
+    for name, setting in SHAPE_SETTINGS.items():
+        if name in props:
+            setattr(op, name, getattr(cfg, setting))
+
+
 class _MaxLineShapeShared:
     """Drag-out modal shared by Circle, Rectangle and NGon."""
 
@@ -2132,6 +2150,10 @@ class _MaxLineShapeShared:
     corner_radius: bpy.props.FloatProperty(
         name="Corner Radius", description="Round the corners by this radius",
         default=0.0, min=0.0, soft_max=100.0, subtype='DISTANCE')
+    from_tool: bpy.props.BoolProperty(
+        name="From Tool",
+        description="Started by a click with the tool: the click starts the drawing",
+        default=False, options={'HIDDEN', 'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -2183,6 +2205,9 @@ class _MaxLineShapeShared:
         if self.area is None:
             self.report({'WARNING'}, "%s needs a 3D viewport open" % self.bl_label)
             return {'CANCELLED'}
+        if self.from_tool:
+            # The tool's settings are the Max Line settings, as the sidebar buttons used.
+            apply_shape_settings(self, settings(context))
 
         self.stage = 'START'
         self.origin_point = Vector()
@@ -2206,6 +2231,9 @@ class _MaxLineShapeShared:
         self._status(context)
         context.window_manager.modal_handler_add(self)
         self.area.tag_redraw()
+        if self.from_tool and event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            # Started by a click with the tool: that click starts the shape.
+            self.modal(context, event)
         return {'RUNNING_MODAL'}
 
     def _status(self, context):
@@ -3071,6 +3099,11 @@ class CURVE_OT_maxline_freehand(bpy.types.Operator):
 
     # -- lifecycle ---------------------------------------------------------
 
+    from_tool: bpy.props.BoolProperty(
+        name="From Tool",
+        description="Started by a click with the tool: the click starts the drawing",
+        default=False, options={'HIDDEN', 'SKIP_SAVE'})
+
     def invoke(self, context, event):
         self.area, self.region, self.rv3d = find_view3d(context)
         if self.area is None:
@@ -3089,6 +3122,9 @@ class CURVE_OT_maxline_freehand(bpy.types.Operator):
         self._status(context)
         context.window_manager.modal_handler_add(self)
         self.area.tag_redraw()
+        if self.from_tool and event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            # Started by a click with the tool: that click starts the stroke.
+            self.modal(context, event)
         return {'RUNNING_MODAL'}
 
     def _reset_stroke(self):
@@ -3421,40 +3457,21 @@ def draw_live_preview_safe():
 # ---------------------------------------------------------------------------
 
 class VIEW3D_PT_maxline(bpy.types.Panel):
+    """Max Line settings. The tools are in the toolbar (Max Line group) and in Add > Curve."""
+
     bl_label = "Max Line"
     bl_idname = "VIEW3D_PT_maxline"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Tool"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
 
     def draw(self, context):
-        layout = self.layout
-        cfg = settings(context)
-
-        col = layout.column(align=True)
-        col.operator("curve.maxline_draw",
-                     text="Draw Line", icon='IPO_LINEAR')
-        col.operator(CURVE_OT_maxline_freehand.bl_idname,
-                     text="Draw Curve", icon='IPO_BEZIER')
-        row = col.row(align=True)
-        row.operator(CURVE_OT_maxline_circle.bl_idname,
-                     text="Circle", icon='MESH_CIRCLE')
-        props = row.operator(CURVE_OT_maxline_arc.bl_idname,
-                             text="Arc", icon='SPHERECURVE')
-        props.method = cfg.arc_method
-        props.pie_slice = cfg.arc_pie
-        row = col.row(align=True)
-        props = row.operator(CURVE_OT_maxline_rectangle.bl_idname,
-                             text="Rectangle", icon='MESH_PLANE')
-        props.corner_radius = cfg.shape_corner_radius
-        props.from_center = cfg.rect_from_center
-        props = row.operator(CURVE_OT_maxline_ngon.bl_idname,
-                             text="NGon", icon='SEQ_CHROMA_SCOPE')
-        props.corner_radius = cfg.shape_corner_radius
-        props.sides = cfg.ngon_sides
-        props.inscribed = cfg.ngon_inscribed
-
-        draw_maxline_settings(layout, context)
+        draw_maxline_settings(self.layout, context)
 
 
 def draw_maxline_settings(layout, context):

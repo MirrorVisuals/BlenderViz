@@ -50,8 +50,13 @@ def tool_ids(items):
             yield from tool_ids(item)
 
 
-check("builtin.maxline" in set(tool_ids(VIEW3D_PT_tools_active._tools['OBJECT'])),
-      "Max Line tool in the Object Mode toolbar")
+object_tools = set(tool_ids(VIEW3D_PT_tools_active._tools['OBJECT']))
+for tool in ("maxline", "maxline_curve", "maxline_circle", "maxline_arc", "maxline_rectangle", "maxline_ngon"):
+    check("builtin." + tool in object_tools, "%s tool in the Object Mode toolbar" % tool)
+group = next((item for item in VIEW3D_PT_tools_active._tools['OBJECT']
+              if isinstance(item, tuple) and not hasattr(item, "idname")
+              and any(getattr(t, "idname", "") == "builtin.maxline" for t in item)), None)
+check(group is not None and len(group) == 6, "the Max Line tools are one toolbar group (a flyout)")
 check(hasattr(bpy.types, "VIEW3D_PT_maxline_tool_settings"), "tool options popover")
 
 print("Key in the default keymap")
@@ -71,7 +76,13 @@ else:
 check(found, "Shift+Alt+L draws a line in Object Mode")
 tool_km = kc.keymaps.get("3D View Tool: Object, Max Line") if kc else None
 check((tool_km is not None and any(k.idname == "curve.maxline_draw" for k in tool_km.keymap_items))
-      or '"3D View Tool: Object, Max Line"' in data, "the tool's click keymap")
+      or '("Line", "curve.maxline_draw")' in data, "the tool's click keymap")
+check(all('("' + label + '", "curve.maxline_' + op + '")' in data
+          for label, op in (("Curve", "freehand"), ("Circle", "circle"), ("Arc", "arc"),
+                            ("Rectangle", "rectangle"), ("NGon", "ngon"))),
+      "click keymaps of the shape tools")
+check(all("from_tool" in getattr(bpy.ops.curve, "maxline_" + op).get_rna_type().properties
+          for op in ("freehand", "circle", "arc", "rectangle", "ngon")), "shape tools start with the click")
 
 print("Line (what the C tool hands over)")
 

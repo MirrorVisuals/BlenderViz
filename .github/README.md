@@ -131,9 +131,10 @@ other primitives: drag its base and it is added with the size drawn.
 ### Max Line: draw splines directly, as the 3ds Max Line tool
 
 Built in (it started as the Max Line extension), always available in Object Mode: the
-**Max Line** tool in the toolbar (below the Add tools; click to start a line, its options are in
-the tool settings), **Add > Curve** (Max Line, Max Curve, Circle, Arc, Rectangle, NGon), the
-**Max Line** panel in the sidebar's Tool tab, and **Shift+Alt+L**.
+**Max Line** tools in the toolbar, one group below the Add tools (hold or click the corner for
+Line, Curve, Circle, Arc, Rectangle and NGon; a click in the viewport starts drawing, the
+options are in the tool settings), **Add > Curve**, and **Shift+Alt+L** for a line. The
+**Max Line** panel in the sidebar's Tool tab has the settings.
 
 - **Line** (in C, `editcurve_maxline.cc`): click to place points, joined by straight segments
   (drawn smooth, anti-aliased). Backspace removes the last point, clicking the first point (or C)

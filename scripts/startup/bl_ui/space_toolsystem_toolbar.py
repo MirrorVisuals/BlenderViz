@@ -506,6 +506,32 @@ class _defs_view3d_select:
 ToolDefaults = namedtuple("ToolDefaults", ["origin_base", "aspect_base", "origin_depth", "aspect_depth"])
 
 
+# BlenderViz: Max Line tools. The Line is `curve.maxline_draw` (`editcurve_maxline.cc`), the
+# others and the settings are in `viz_maxline.py`. Each tool starts its operator with a click.
+def _maxline_settings_popover(context, layout):
+    if getattr(context.scene, "maxline_settings", None) is not None:
+        layout.popover("VIEW3D_PT_maxline_tool_settings", text="Max Line")
+
+
+def _maxline_shape_tool(idname, label, icon, description, settings=()):
+    def draw_settings(context, layout, _tool):
+        cfg = getattr(context.scene, "maxline_settings", None)
+        if cfg is None:
+            return
+        for prop in settings:
+            layout.prop(cfg, prop)
+        _maxline_settings_popover(context, layout)
+
+    return dict(
+        idname="builtin.maxline_" + idname,
+        label=label,
+        icon=icon,
+        description=description,
+        keymap="3D View Tool: Object, Max " + label,
+        draw_settings=draw_settings,
+    )
+
+
 class _defs_view3d_add:
 
     sculpt_tool_defaults = {
@@ -644,22 +670,20 @@ class _defs_view3d_add:
             draw_settings=draw_settings,
         )
 
+    # BlenderViz: Max Line tools, see `_maxline_shape_tool`.
     @ToolDef.from_fn
     def maxline():
-        # BlenderViz: Max Line (`curve.maxline_draw` in `editcurve_maxline.cc`, its settings in
-        # `viz_maxline.py`). Points are placed like the Add tools: same cursor, same settings.
         def draw_settings(context, layout, tool, *, extra=False):
             show_extra = _defs_view3d_add.draw_settings_interactive_add(layout, context.tool_settings, tool, extra)
-            cfg = getattr(context.scene, "maxline_settings", None)
-            if cfg is not None and not extra:
-                layout.popover("VIEW3D_PT_maxline_tool_settings", text="Max Line")
+            if not extra:
+                _maxline_settings_popover(context, layout)
             if show_extra:
                 layout.popover("TOPBAR_PT_tool_settings_extra", text="...")
 
         return dict(
             idname="builtin.maxline",
             label="Max Line",
-            icon="ops.curve.draw",
+            icon="ops.gpencil.primitive_polyline",
             description=(
                 "Draw a spline directly, as the 3ds Max Line tool: click to place points (straight "
                 "segments) on the surface or the placement plane, Ctrl to toggle snapping, the first "
@@ -669,6 +693,22 @@ class _defs_view3d_add:
             keymap="3D View Tool: Object, Max Line",
             draw_settings=draw_settings,
         )
+
+    maxline_curve = ToolDef.from_dict(_maxline_shape_tool(
+        "curve", "Curve", "ops.gpencil.primitive_curve",
+        "Draw a freehand stroke, fitted to a smooth curve"))
+    maxline_circle = ToolDef.from_dict(_maxline_shape_tool(
+        "circle", "Circle", "ops.gpencil.primitive_circle",
+        "Drag out a circle from its center"))
+    maxline_arc = ToolDef.from_dict(_maxline_shape_tool(
+        "arc", "Arc", "ops.gpencil.primitive_arc",
+        "Drag out an arc", ("arc_method", "arc_pie")))
+    maxline_rectangle = ToolDef.from_dict(_maxline_shape_tool(
+        "rectangle", "Rectangle", "ops.gpencil.primitive_box",
+        "Drag out a rectangle", ("shape_corner_radius", "rect_from_center")))
+    maxline_ngon = ToolDef.from_dict(_maxline_shape_tool(
+        "ngon", "NGon", "ops.gpencil.draw.poly",
+        "Drag out a regular polygon from its center", ("ngon_sides", "shape_corner_radius", "ngon_inscribed")))
 
     @ToolDef.from_fn
     def slice_plane_add():
@@ -3871,7 +3911,14 @@ class VIEW3D_PT_tools_active(ToolSelectPanelHelper, Panel):
             None,
             _tools_view3d_add,
             _defs_view3d_add.slice_plane_add,
-            _defs_view3d_add.maxline,
+            (
+                _defs_view3d_add.maxline,
+                _defs_view3d_add.maxline_curve,
+                _defs_view3d_add.maxline_circle,
+                _defs_view3d_add.maxline_arc,
+                _defs_view3d_add.maxline_rectangle,
+                _defs_view3d_add.maxline_ngon,
+            ),
             None,
             _tools_pose,
         ],
