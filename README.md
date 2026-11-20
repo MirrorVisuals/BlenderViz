@@ -10,8 +10,9 @@ BlenderViz
 An experimental fork of **Blender 5.2.3 LTS** that brings a 3ds Max style modifier workflow to
 Blender: editable modeling levels in the modifier stack, UVW Map and Unwrap modifiers, a solid
 Extrude Manifold, a Slice Plane, camera tilt correction, a V-Ray style frame buffer with
-interactive render and Light Mix, quick sun caustics, architectural sections, decals, and a few more
-rendering extras, for architectural visualization. Branch: `edit-poly-stack`.
+interactive render and Light Mix, quick sun caustics, architectural sections, decals, 3ds Max
+style spline drawing (Max Line), and a few more rendering extras, for architectural
+visualization. Branch: `edit-poly-stack`.
 Experimental and unofficial: not affiliated with the Blender Foundation.
 
 What is different from Blender 5.2.3
@@ -126,6 +127,26 @@ mesh add almost nothing.
 
 The Add tool in the toolbar (Object and Edit Mode) can draw a plane, like the cube and the
 other primitives: drag its base and it is added with the size drawn.
+
+### Max Line: draw splines directly, as the 3ds Max Line tool
+
+Built in (it started as the Max Line extension), always available in Object Mode: the
+**Max Line** tool in the toolbar (below the Add tools; click to start a line, its options are in
+the tool settings), **Add > Curve** (Max Line, Max Curve, Circle, Arc, Rectangle, NGon), the
+**Max Line** panel in the sidebar's Tool tab, and **Shift+Alt+L**.
+
+- **Line:** click to place corner points, click-drag to pull Bezier handles, Backspace removes
+  the last point, clicking the first point closes the spline, Enter or right-click finishes.
+- **On surfaces:** points land on the geometry under the mouse (and can take that object's
+  local coordinates), or on the ground / cursor / view plane in empty space. **Ctrl** snaps with
+  the scene's snap settings.
+- **Shapes:** Circle, Arc, Rectangle (with corner radius) and NGon, dragged out on the surface or
+  plane, all adjustable afterwards in the Adjust Last Operation panel.
+- **Edit Mode tools** (sidebar and Control Points menu): **Refine** (click a segment to add a
+  point), **Fillet** and **Chamfer** on the selected corners, and **Outline** (a second, offset
+  spline in the same object), by dragging in the viewport or by typing the amount.
+- The old **maxline** extension is not loaded any more in BlenderViz (it would add everything
+  twice): it can be uninstalled.
 
 ### Slice Plane, as in 3ds Max
 

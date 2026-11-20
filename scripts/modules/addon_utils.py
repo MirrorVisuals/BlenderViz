@@ -335,6 +335,12 @@ def _addon_remove(module_name):
             addons.remove(addon)
 
 
+# BlenderViz: extension ID -> the built-in module that replaces it.
+_builtin_extensions = {
+    "maxline": "Max Line, scripts/startup/viz_maxline.py",
+}
+
+
 def enable(module_name, *, default_set=False, persistent=False, refresh_handled=False, handle_error=None):
     """
     Enables an addon by name.
@@ -373,6 +379,13 @@ def enable(module_name, *, default_set=False, persistent=False, refresh_handled=
             traceback.print_exc()
 
     if (is_extension := module_name.startswith(_ext_base_pkg_idname_with_dot)):
+        # BlenderViz: extensions that are now built in. Loading them as well would register the
+        # same operators, panels and menu entries twice.
+        if (pkg_id := module_name[len(_ext_base_pkg_idname_with_dot):].partition(".")[2]) in _builtin_extensions:
+            print("Extension {:s} is built into BlenderViz ({:s}), not loading it: it can be uninstalled".format(
+                module_name, _builtin_extensions[pkg_id]))
+            return None
+
         if not refresh_handled:
             extensions_refresh(
                 addon_modules_pending=[module_name],

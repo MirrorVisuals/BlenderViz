@@ -645,6 +645,29 @@ class _defs_view3d_add:
         )
 
     @ToolDef.from_fn
+    def maxline():
+        # BlenderViz: Max Line (operators in `viz_maxline.py`).
+        def draw_settings(context, layout, _tool):
+            cfg = getattr(context.scene, "maxline_settings", None)
+            if cfg is None:
+                return
+            layout.prop(cfg, "fallback_plane", text="")
+            layout.prop(cfg, "continuous")
+            layout.popover("VIEW3D_PT_maxline_tool_settings", text="Options")
+
+        return dict(
+            idname="builtin.maxline",
+            label="Max Line",
+            icon="ops.curve.draw",
+            description=(
+                "Draw a spline directly, as the 3ds Max Line tool: click for corner points, "
+                "click-drag for Bezier points, Ctrl to snap, right-click or Enter to finish"
+            ),
+            keymap="3D View Tool: Object, Max Line",
+            draw_settings=draw_settings,
+        )
+
+    @ToolDef.from_fn
     def slice_plane_add():
         def draw_settings(context, layout, tool, *, extra=False):
             show_extra = _defs_view3d_add.draw_settings_interactive_add(layout, context.tool_settings, tool, extra)
@@ -3845,6 +3868,7 @@ class VIEW3D_PT_tools_active(ToolSelectPanelHelper, Panel):
             None,
             _tools_view3d_add,
             _defs_view3d_add.slice_plane_add,
+            _defs_view3d_add.maxline,
             None,
             _tools_pose,
         ],

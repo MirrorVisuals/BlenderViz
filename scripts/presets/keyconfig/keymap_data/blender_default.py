@@ -4533,6 +4533,8 @@ def km_object_mode(params):
         ("object.select_more", {"type": 'NUMPAD_PLUS', "value": 'PRESS', "ctrl": True, "repeat": True}, None),
         ("object.select_less", {"type": 'NUMPAD_MINUS', "value": 'PRESS', "ctrl": True, "repeat": True}, None),
         ("object.select_linked", {"type": 'L', "value": 'PRESS', "shift": True}, None),
+        # BlenderViz: Max Line, draw a spline directly (`viz_maxline.py`).
+        ("curve.maxline_draw", {"type": 'L', "value": 'PRESS', "shift": True, "alt": True}, None),
         ("object.select_grouped", {"type": 'G', "value": 'PRESS', "shift": True}, None),
         ("object.select_hierarchy", {"type": 'LEFT_BRACKET', "value": 'PRESS', "repeat": True},
          {"properties": [("direction", 'PARENT'), ("extend", False)]}),
@@ -7752,6 +7754,18 @@ def km_3d_view_tool_edit_armature_extrude_to_cursor(params):
 # ------------------------------------------------------------------------------
 # Tool System (3D View, Object Mode)
 
+def km_3d_view_tool_maxline(params):
+    # BlenderViz: Max Line tool (`viz_maxline.py`): a click starts a line at that point.
+    return (
+        "3D View Tool: Object, Max Line",
+        {"space_type": 'VIEW_3D', "region_type": 'WINDOW'},
+        {"items": [
+            ("curve.maxline_draw", {"type": params.tool_mouse, "value": 'PRESS'},
+             {"properties": [("from_tool", True)]}),
+        ]},
+    )
+
+
 def km_3d_view_tool_interactive_add(params):
     return (
         "3D View Tool: Object, Add Primitive",
@@ -9169,6 +9183,7 @@ def generate_keymaps(params=None):
         km_3d_view_tool_bend(params),
         km_3d_view_tool_measure(params),
         km_3d_view_tool_interactive_add(params),
+        km_3d_view_tool_maxline(params),
         km_3d_view_tool_pose_breakdowner(params),
         km_3d_view_tool_pose_push(params),
         km_3d_view_tool_pose_relax(params),

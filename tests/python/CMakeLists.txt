@@ -719,6 +719,11 @@ if(WITH_CYCLES)
 endif()
 
 add_blender_test(
+  maxline
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_maxline.py
+)
+
+add_blender_test(
   geo_node_file_reporting
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_geo_node_file_reporting.py
   --
