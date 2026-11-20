@@ -646,23 +646,26 @@ class _defs_view3d_add:
 
     @ToolDef.from_fn
     def maxline():
-        # BlenderViz: Max Line (operators in `viz_maxline.py`).
-        def draw_settings(context, layout, _tool):
+        # BlenderViz: Max Line (`curve.maxline_draw` in `editcurve_maxline.cc`, its settings in
+        # `viz_maxline.py`). Points are placed like the Add tools: same cursor, same settings.
+        def draw_settings(context, layout, tool, *, extra=False):
+            show_extra = _defs_view3d_add.draw_settings_interactive_add(layout, context.tool_settings, tool, extra)
             cfg = getattr(context.scene, "maxline_settings", None)
-            if cfg is None:
-                return
-            layout.prop(cfg, "fallback_plane", text="")
-            layout.prop(cfg, "continuous")
-            layout.popover("VIEW3D_PT_maxline_tool_settings", text="Options")
+            if cfg is not None and not extra:
+                layout.popover("VIEW3D_PT_maxline_tool_settings", text="Max Line")
+            if show_extra:
+                layout.popover("TOPBAR_PT_tool_settings_extra", text="...")
 
         return dict(
             idname="builtin.maxline",
             label="Max Line",
             icon="ops.curve.draw",
             description=(
-                "Draw a spline directly, as the 3ds Max Line tool: click for corner points, "
-                "click-drag for Bezier points, Ctrl to snap, right-click or Enter to finish"
+                "Draw a spline directly, as the 3ds Max Line tool: click to place points (straight "
+                "segments) on the surface or the placement plane, Ctrl to toggle snapping, the first "
+                "point to close, right-click or Enter to finish"
             ),
+            widget="VIEW3D_GGT_placement",
             keymap="3D View Tool: Object, Max Line",
             draw_settings=draw_settings,
         )

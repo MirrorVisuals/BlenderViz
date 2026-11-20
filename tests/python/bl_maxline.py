@@ -11,6 +11,7 @@ import sys
 
 import addon_utils
 import bpy
+from mathutils import Vector
 
 failures = []
 
@@ -25,7 +26,9 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 
 print("Loaded at startup")
-for idname in ("draw", "freehand", "circle", "arc", "rectangle", "ngon",
+check(bpy.ops.curve.maxline_draw.get_rna_type().identifier == "CURVE_OT_maxline_draw",
+      "curve.maxline_draw (C)")
+for idname in ("commit", "freehand", "circle", "arc", "rectangle", "ngon",
                "fillet", "chamfer", "refine", "outline"):
     check(hasattr(bpy.types, "CURVE_OT_maxline_" + idname), "operator curve.maxline_" + idname)
 check(hasattr(bpy.types, "VIEW3D_PT_maxline") and hasattr(bpy.types, "VIEW3D_PT_maxline_edit"),
@@ -70,7 +73,7 @@ tool_km = kc.keymaps.get("3D View Tool: Object, Max Line") if kc else None
 check((tool_km is not None and any(k.idname == "curve.maxline_draw" for k in tool_km.keymap_items))
       or '"3D View Tool: Object, Max Line"' in data, "the tool's click keymap")
 
-print("Shapes")
+print("Line (what the C tool hands over)")
 
 
 def new_curve(op, **props):
@@ -78,6 +81,31 @@ def new_curve(op, **props):
     result = op(**props)
     new = [ob for ob in bpy.data.objects if ob not in before]
     return result, (new[0] if new else None)
+
+
+bpy.ops.mesh.primitive_plane_add(size=4.0, location=(5.0, 0.0, 1.0))
+floor = bpy.context.object
+floor.name = "Floor"
+square = [(4.0, -1.0, 1.0), (6.0, -1.0, 1.0), (6.0, 1.0, 1.0), (4.0, 1.0, 1.0)]
+result, line = new_curve(
+    bpy.ops.curve.maxline_commit,
+    points=[{"name": "", "co": co, "object": "Floor", "normal": (0.0, 0.0, 1.0), "has_normal": True}
+            for co in square],
+    cyclic=True)
+check(result == {'FINISHED'} and line is not None and line.type == 'CURVE', "line from points")
+if line:
+    spline = line.data.splines[0]
+    check(spline.use_cyclic_u and len(spline.bezier_points) == 4, "closed, 4 points")
+    check(all(p.handle_left_type == 'VECTOR' and p.handle_right_type == 'VECTOR'
+              for p in spline.bezier_points), "straight segments (vector handles)")
+    world = [line.matrix_world @ p.co for p in spline.bezier_points]
+    check(all((a - Vector(b)).length < 1e-5 for a, b in zip(world, square)), "points where they were placed")
+    check(bpy.context.object == line and line.select_get(), "the new line is active and selected")
+result, _none = new_curve(bpy.ops.curve.maxline_commit, points=[{"name": "", "co": (0.0, 0.0, 0.0), "object": "",
+                                                     "normal": (0.0, 0.0, 0.0), "has_normal": False}])
+check(result == {'CANCELLED'}, "one point makes no line")
+
+print("Shapes")
 
 
 result, circle = new_curve(bpy.ops.curve.maxline_circle, radius=2.0)
@@ -122,7 +150,7 @@ if rect:
 
 print("The old extension is not loaded on top of it")
 check(addon_utils.enable("bl_ext.user_default.maxline") is None, "enabling the extension is refused")
-check(hasattr(bpy.types, "CURVE_OT_maxline_draw"), "built-in tool still there")
+check(hasattr(bpy.types, "CURVE_OT_maxline_commit"), "built-in tool still there")
 
 if failures:
     print("\n%d FAILED:" % len(failures))

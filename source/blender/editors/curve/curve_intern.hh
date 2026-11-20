@@ -246,6 +246,10 @@ void ED_curve_nurb_vert_selected_find(
 
 void CURVE_OT_draw(wmOperatorType *ot);
 
+/* `editcurve_maxline.cc` */
+
+void CURVE_OT_maxline_draw(wmOperatorType *ot);
+
 /* `editcurve_pen.cc` */
 
 void CURVE_OT_pen(wmOperatorType *ot);

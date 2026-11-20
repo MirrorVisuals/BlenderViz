@@ -135,11 +135,12 @@ Built in (it started as the Max Line extension), always available in Object Mode
 the tool settings), **Add > Curve** (Max Line, Max Curve, Circle, Arc, Rectangle, NGon), the
 **Max Line** panel in the sidebar's Tool tab, and **Shift+Alt+L**.
 
-- **Line:** click to place corner points, click-drag to pull Bezier handles, Backspace removes
-  the last point, clicking the first point closes the spline, Enter or right-click finishes.
-- **On surfaces:** points land on the geometry under the mouse (and can take that object's
-  local coordinates), or on the ground / cursor / view plane in empty space. **Ctrl** snaps with
-  the scene's snap settings.
+- **Line** (in C, `editcurve_maxline.cc`): click to place points, joined by straight segments
+  (drawn smooth, anti-aliased). Backspace removes the last point, clicking the first point (or C)
+  closes the spline, Enter or right-click finishes.
+- **Placed like the Add tools:** the same cursor with the grid on the surface or the placement
+  plane, and the same settings in the header (Depth, Orientation, Snap To). **Ctrl** toggles
+  snapping. The spline takes the space of the object it was drawn on (Max Line settings).
 - **Shapes:** Circle, Arc, Rectangle (with corner radius) and NGon, dragged out on the surface or
   plane, all adjustable afterwards in the Adjust Last Operation panel.
 - **Edit Mode tools** (sidebar and Control Points menu): **Refine** (click a segment to add a

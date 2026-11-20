@@ -375,6 +375,14 @@ class SnapCache:
         self.edges = None      # (E, 2) int32
         self.midpoints = None  # (E, 3) float64, built lazily
         self.truncated = False
+        # Built only when snapping is first used, then kept until the scene changes
+        # (see `_snap_cache_invalidate`), so starting a shape costs nothing.
+        self.dirty = True
+
+    def ensure(self, context):
+        if self.dirty:
+            self.build(context)
+            self.dirty = False
 
     def build(self, context):
         self.verts = None
@@ -452,6 +460,19 @@ class SnapCache:
             self.midpoints = (self.verts[self.edges[:, 0]]
                               + self.verts[self.edges[:, 1]]) * 0.5
         return self.midpoints
+
+
+_SNAP_CACHE = SnapCache()
+
+
+def shared_snap_cache():
+    """One snap cache for all the Max Line tools, rebuilt only after the scene changed."""
+    return _SNAP_CACHE
+
+
+@bpy.app.handlers.persistent
+def _snap_cache_invalidate(*_args):
+    _SNAP_CACHE.dirty = True
 
 
 def ranked_indices(d2, count=8):
@@ -621,6 +642,8 @@ def query_snap(context, region, rv3d, cache, mouse, extra_points=()):
     elements = snap_elements(context)
     if not elements:
         return None
+    if elements & {'VERTEX', 'EDGE_MIDPOINT', 'EDGE'}:
+        cache.ensure(context)
 
     pm = np.array(rv3d.perspective_matrix, dtype=np.float64)
     radius = cfg.snap_radius
@@ -704,316 +727,75 @@ def find_view3d(context):
 
 
 # ---------------------------------------------------------------------------
-# Operator
+# Line: the drawing is done in C (curve.maxline_draw, editcurve_maxline.cc), with the snapping
+# cursor of the Add tools. It hands the finished spline to this operator, which makes the curve
+# object with the Max Line settings.
 # ---------------------------------------------------------------------------
 
-class CURVE_OT_maxline_draw(bpy.types.Operator):
-    """Draw a spline directly in the viewport, 3ds Max style"""
+class MAXLINE_PG_commit_point(bpy.types.PropertyGroup):
+    co: bpy.props.FloatVectorProperty(name="Location", size=3, subtype='XYZ')
+    object: bpy.props.StringProperty(name="Object", description="Object the point was placed on")
+    normal: bpy.props.FloatVectorProperty(name="Normal", size=3, subtype='XYZ')
+    has_normal: bpy.props.BoolProperty(name="Has Normal")
 
-    bl_idname = "curve.maxline_draw"
+
+class CURVE_OT_maxline_commit(bpy.types.Operator):
+    """Make a curve object from the points of a Max Line (used by the Max Line tool)"""
+
+    bl_idname = "curve.maxline_commit"
     bl_label = "Max Line"
-    bl_options = {'REGISTER'}
+    bl_options = {'UNDO', 'INTERNAL'}
 
-    from_tool: bpy.props.BoolProperty(
-        name="From Tool",
-        description="Started by a click with the Max Line tool: the click places the first point",
-        default=False, options={'HIDDEN', 'SKIP_SAVE'})
+    points: bpy.props.CollectionProperty(type=MAXLINE_PG_commit_point, options={'SKIP_SAVE'})
+    cyclic: bpy.props.BoolProperty(name="Closed", options={'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
-        if context.mode != 'OBJECT':
-            setter = getattr(cls, "poll_message_set", None)
-            if setter is not None:
-                setter("Only available in Object Mode")
-            return False
-        return True
+        return context.mode == 'OBJECT'
 
-    # -- lifecycle ---------------------------------------------------------
-
-    def invoke(self, context, event):
-        self.area, self.region, self.rv3d = find_view3d(context)
-        if self.area is None:
-            self.report({'WARNING'}, "Max Line needs a 3D viewport open")
-            return {'CANCELLED'}
-        if self.from_tool and not self._in_region(event):
-            return {'PASS_THROUGH'}
-
-        self.points = []
-        self.pending = None
-        self.dragging = False
-        self.drag_anchor = Vector()
-        self.drag_start = (0, 0)
-        self.closed = False
-
-        self.mouse = self._mouse(event)
-        self.cursor_co = Vector()
-        self.snap_label = ""
-        self.snap_co = None
-        self.hover_first = False
-        self._handle_3d = None
-        self._handle_2d = None
-
-        self.cache = SnapCache()
-        self.cache.build(context)
-        if self.cache.truncated:
-            self.report({'INFO'},
-                        "Snap geometry truncated; raise the vertex limit if needed")
-
-        self._update_cursor(context, event)
-
-        args = (self, context)
-        self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
-            draw_callback_3d, args, 'WINDOW', 'POST_VIEW')
-        self._handle_2d = bpy.types.SpaceView3D.draw_handler_add(
-            draw_callback_2d, args, 'WINDOW', 'POST_PIXEL')
-
-        context.window.cursor_modal_set('CROSSHAIR')
-        context.workspace.status_text_set(
-            "LMB: point   |   Drag: bezier   |   Ctrl: snap   |   Backspace: undo point"
-            "   |   C: close   |   R: rebuild snap data   |   RMB/Enter: finish"
-            "   |   Esc: cancel")
-        context.window_manager.modal_handler_add(self)
-        self.region.tag_redraw()
-        if self.from_tool and event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            # Started by a click with the Max Line tool: that click is the first point.
-            self.modal(context, event)
-        return {'RUNNING_MODAL'}
-
-    def _teardown(self, context):
-        if getattr(self, "_handle_3d", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_3d, 'WINDOW')
-            self._handle_3d = None
-        if getattr(self, "_handle_2d", None) is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle_2d, 'WINDOW')
-            self._handle_2d = None
-        for action in (lambda: context.window.cursor_modal_restore(),
-                       lambda: context.workspace.status_text_set(None),
-                       lambda: self.region.tag_redraw()):
-            try:
-                action()
-            except (AttributeError, ReferenceError, TypeError):
-                pass
-
-    def _mouse(self, event):
-        """Mouse position in viewport-region coordinates, whatever region fired."""
-        return (event.mouse_x - self.region.x, event.mouse_y - self.region.y)
-
-    def _in_region(self, event):
-        x, y = self._mouse(event)
-        return 0 <= x < self.region.width and 0 <= y < self.region.height
-
-    # -- point resolution --------------------------------------------------
-
-    def _update_cursor(self, context, event):
-        cfg = settings(context)
-        region, rv3d = self.region, self.rv3d
-        mouse = self._mouse(event)
-        self.mouse = mouse
-        self.snap_label = ""
-        self.snap_co = None
-        self.hover_first = False
-
-        # Hovering the first point offers to close the spline.
-        if len(self.points) >= 3:
-            first2d = view3d_utils.location_3d_to_region_2d(
-                region, rv3d, self.points[0].co)
-            if first2d is not None:
-                dx = first2d.x - mouse[0]
-                dy = first2d.y - mouse[1]
-                if dx * dx + dy * dy <= cfg.close_radius ** 2:
-                    self.hover_first = True
-                    self.cursor_co = self.points[0].co.copy()
-                    self.snap_label = "Close"
-                    self.snap_co = self.cursor_co.copy()
-                    return
-
-        if snapping_active(context, event):
-            snapped = self._query_snap(context, mouse)
-            if snapped is not None:
-                self.snap_label, self.cursor_co = snapped
-                self.snap_co = self.cursor_co.copy()
-                return
-
-        self.cursor_co = self._raw_point(context, mouse)
-
-    def _raw_point(self, context, mouse):
-        return raw_point(context, self.region, self.rv3d, mouse)
-
-    def _query_snap(self, context, mouse):
-        return query_snap(context, self.region, self.rv3d, self.cache,
-                          mouse, [p.co for p in self.points])
-
-    # -- editing -----------------------------------------------------------
-
-    def _preview_points(self):
-        """Committed points plus the live one under the mouse, and whether to close."""
-        if self.dragging and self.pending is not None:
-            return self.points + [self.pending], False
-        if self.hover_first and len(self.points) >= 3:
-            return list(self.points), True
-        return self.points + [SplinePoint(self.cursor_co)], False
-
-    def _object_under(self, context, mouse):
-        """Which object the mouse ray hits, regardless of any active snap."""
-        origin = view3d_utils.region_2d_to_origin_3d(self.region, self.rv3d, mouse)
-        direction = view3d_utils.region_2d_to_vector_3d(self.region, self.rv3d, mouse)
-        depsgraph = context.evaluated_depsgraph_get()
-        hit, _loc, _nor, _idx, ob, _mat = context.scene.ray_cast(
-            depsgraph, origin, direction)
-        if hit and ob is not None:
-            # ray_cast hands back the evaluated copy; we want the real datablock.
-            return ob.original
-        return None
-
-    def _anchor_object(self):
-        """The object this spline belongs to: whichever one most of it was drawn on."""
-        counts = {}
-        order = []
-        for p in self.points:
-            if p.obj is None:
-                continue
-            key = p.obj.name
-            if key not in counts:
-                counts[key] = 0
-                order.append(p.obj)
-            counts[key] += 1
-        if not order:
-            return None
-        # max() keeps the earliest entry on a tie, so ties go to the first drawn on.
-        return max(order, key=lambda ob: counts[ob.name])
-
-    def _anchor_normal(self, anchor):
-        """Average surface normal of the points that landed on the anchor."""
-        normals = [p.nor for p in self.points if p.nor is not None
-                   and (anchor is None or p.obj is anchor)]
-        if not normals:
-            return None
-        total = Vector((0.0, 0.0, 0.0))
-        for n in normals:
-            total = total + n
-        return total.normalized() if total.length_squared > 1e-12 else normals[0]
-
-    def _commit(self, context):
-        """Turn the collected points into a real curve object."""
+    def execute(self, context):
         if len(self.points) < 2:
-            return False
-        knots = [Knot(p.co, p.hl, p.hr, p.htype, p.htype, True)
-                 for p in self.points]
-        anchor = self._anchor_object()
-        return commit_knots(context, knots, self.closed, anchor, "MaxLine",
-                            align_normal=self._anchor_normal(anchor)) is not None
-
-    def _reset(self):
-        self.points = []
-        self.pending = None
-        self.dragging = False
-        self.closed = False
-
-    def _finish_spline(self, context, close=False):
-        self.closed = close or self.closed
-        created = self._commit(context)
-        self._reset()
-        if settings(context).continuous:
-            return {'RUNNING_MODAL'}
-        self._teardown(context)
-        return {'FINISHED'} if created else {'CANCELLED'}
-
-    # -- modal -------------------------------------------------------------
-
-    def modal(self, context, event):
-        # Blender pins a modal operator's context to the area it was invoked
-        # from, so context.area is not where the pointer is. Comparing against
-        # it would ignore every event when launched from another editor.
-        # Gate on the pointer's position within the target region instead.
-        if event.type == 'ESC' and event.value == 'PRESS' and not self.points:
-            self._teardown(context)
             return {'CANCELLED'}
+        points = []
+        for item in self.points:
+            point = SplinePoint(Vector(item.co))
+            point.obj = bpy.data.objects.get(item.object) if item.object else None
+            point.nor = Vector(item.normal) if item.has_normal else None
+            points.append(point)
+        anchor = anchor_object(points)
+        knots = [Knot(p.co, p.hl, p.hr, p.htype, p.htype, True) for p in points]
+        obj = commit_knots(context, knots, self.cyclic, anchor, "MaxLine", push_undo=False,
+                           align_normal=anchor_normal(points, anchor))
+        return {'FINISHED'} if obj is not None else {'CANCELLED'}
 
-        self.area.tag_redraw()
 
-        if event.type in NAV_EVENTS:
-            return {'PASS_THROUGH'}
+def anchor_object(points):
+    """The object a spline belongs to: whichever one most of it was drawn on."""
+    counts = {}
+    order = []
+    for p in points:
+        if p.obj is None:
+            continue
+        key = p.obj.name
+        if key not in counts:
+            counts[key] = 0
+            order.append(p.obj)
+        counts[key] += 1
+    if not order:
+        return None
+    # max() keeps the earliest entry on a tie, so ties go to the first drawn on.
+    return max(order, key=lambda ob: counts[ob.name])
 
-        cfg = settings(context)
-        inside = self._in_region(event)
 
-        if event.type in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
-            if not inside:
-                return {'RUNNING_MODAL'}
-            if self.dragging and self.pending is not None:
-                mouse = self._mouse(event)
-                self.mouse = mouse
-                travel = math.hypot(mouse[0] - self.drag_start[0],
-                                    mouse[1] - self.drag_start[1])
-                if travel >= cfg.drag_threshold:
-                    self.pending.set_drag(self.drag_anchor, view_plane_point(
-                        context, self.region, self.rv3d, mouse, self.drag_anchor))
-                else:
-                    self.pending.clear_drag()
-            else:
-                self._update_cursor(context, event)
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'LEFTMOUSE':
-            if event.value == 'PRESS':
-                if not inside:
-                    return {'RUNNING_MODAL'}
-                if self.hover_first and len(self.points) >= 3:
-                    return self._finish_spline(context, close=True)
-                self.pending = SplinePoint(self.cursor_co)
-                self.pending.obj, self.pending.nor = hit_object_and_normal(
-                    context, self.region, self.rv3d, self._mouse(event))
-                self.drag_anchor = self.cursor_co.copy()
-                self.drag_start = self._mouse(event)
-                self.dragging = True
-            elif event.value == 'RELEASE':
-                if self.dragging and self.pending is not None:
-                    self.points.append(self.pending)
-                self.pending = None
-                self.dragging = False
-                self._update_cursor(context, event)
-            return {'RUNNING_MODAL'}
-
-        if event.value != 'PRESS':
-            return {'RUNNING_MODAL'}
-
-        if event.type in {'BACK_SPACE', 'DEL'}:
-            if self.dragging:
-                self.pending = None
-                self.dragging = False
-            elif self.points:
-                self.points.pop()
-            self._update_cursor(context, event)
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'C':
-            if len(self.points) >= 3:
-                return self._finish_spline(context, close=True)
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'R':
-            self.cache.build(context)
-            self._update_cursor(context, event)
-            return {'RUNNING_MODAL'}
-
-        if event.type in {'RET', 'NUMPAD_ENTER', 'SPACE', 'RIGHTMOUSE'}:
-            if len(self.points) >= 2:
-                return self._finish_spline(context)
-            self._teardown(context)
-            return {'CANCELLED'}
-
-        if event.type == 'ESC':
-            if self.points or self.dragging:
-                self._reset()
-                self._update_cursor(context, event)
-                return {'RUNNING_MODAL'}
-            self._teardown(context)
-            return {'CANCELLED'}
-
-        return {'RUNNING_MODAL'}
-
-    def cancel(self, context):
-        self._teardown(context)
+def anchor_normal(points, anchor):
+    """Average surface normal of the points that landed on the anchor."""
+    normals = [p.nor for p in points if p.nor is not None and (anchor is None or p.obj is anchor)]
+    if not normals:
+        return None
+    total = Vector((0.0, 0.0, 0.0))
+    for n in normals:
+        total = total + n
+    return total.normalized() if total.length_squared > 1e-12 else normals[0]
 
 
 # ---------------------------------------------------------------------------
@@ -1052,94 +834,6 @@ def draw_frame_2d(x, y, half, color, thickness=2.0):
                (x + half, y + half, 0.0), (x - half, y + half, 0.0),
                (x - half, y - half, 0.0)]
     draw_polyline(corners, color, thickness)
-
-
-def draw_callback_3d(op, context):
-    if context.area != op.area:
-        return
-
-    cfg = settings(context)
-    points, close_preview = op._preview_points()
-    if len(points) < 2:
-        if op.dragging and op.pending is not None and op.pending.htype != 'VECTOR':
-            gpu.state.blend_set('ALPHA')
-            gpu.state.depth_test_set('NONE')
-            draw_polyline([op.pending.hl, op.pending.co, op.pending.hr], COL_HANDLE, 1.5)
-            gpu.state.blend_set('NONE')
-            gpu.state.depth_test_set('LESS_EQUAL')
-        return
-
-    closed = close_preview or op.closed
-    segments = spline_segments(points, closed, cfg.curve_resolution)
-    if not segments:
-        return
-
-    gpu.state.blend_set('ALPHA')
-    gpu.state.depth_test_set('NONE')
-
-    # The final segment is the rubber band to the mouse unless we are dragging.
-    ghost_index = -1
-    if not op.dragging and not closed and op.points:
-        ghost_index = len(segments) - 1
-
-    for i, seg in enumerate(segments):
-        if i == ghost_index:
-            draw_polyline(seg, COL_PREVIEW, 2.5)
-        else:
-            draw_polyline(seg, COL_CURVE, 3.0)
-
-    if op.dragging and op.pending is not None and op.pending.htype != 'VECTOR':
-        draw_polyline([op.pending.hl, op.pending.co, op.pending.hr], COL_HANDLE, 1.5)
-
-    gpu.state.blend_set('NONE')
-    gpu.state.depth_test_set('LESS_EQUAL')
-
-
-def draw_callback_2d(op, context):
-    if context.area != op.area:
-        return
-
-    region, rv3d = op.region, op.rv3d
-    scale = context.preferences.system.ui_scale
-    gpu.state.blend_set('ALPHA')
-
-    def to2d(co):
-        return view3d_utils.location_3d_to_region_2d(region, rv3d, co)
-
-    for i, p in enumerate(op.points):
-        pos = to2d(p.co)
-        if pos is None:
-            continue
-        if i == 0 and len(op.points) >= 3:
-            color = COL_FIRST
-        elif p.htype == 'VECTOR':
-            color = COL_KNOT
-        else:
-            color = COL_KNOT_BEZ
-        draw_quad_2d(pos.x, pos.y, 3.5 * scale, color)
-
-    if op.dragging and op.pending is not None:
-        pos = to2d(op.pending.co)
-        if pos is not None:
-            draw_quad_2d(pos.x, pos.y, 4.0 * scale, COL_KNOT_BEZ)
-        if op.pending.htype != 'VECTOR':
-            for handle in (op.pending.hl, op.pending.hr):
-                hp = to2d(handle)
-                if hp is not None:
-                    draw_quad_2d(hp.x, hp.y, 3.0 * scale, COL_HANDLE)
-
-    if op.snap_co is not None:
-        pos = to2d(op.snap_co)
-        if pos is not None:
-            color = COL_FIRST if op.hover_first else COL_SNAP
-            draw_frame_2d(pos.x, pos.y, 7.0 * scale, color, 2.0)
-            if op.snap_label:
-                blf.size(0, int(11 * scale))
-                blf.color(0, *color)
-                blf.position(0, pos.x + 12 * scale, pos.y + 12 * scale, 0.0)
-                blf.draw(0, op.snap_label)
-
-    gpu.state.blend_set('NONE')
 
 
 # ---------------------------------------------------------------------------
@@ -2501,8 +2195,7 @@ class _MaxLineShapeShared:
         self.preview = []
         self.mouse = self._mouse(event)
 
-        self.cache = SnapCache()
-        self.cache.build(context)
+        self.cache = shared_snap_cache()
         self._resolve(context, event)
 
         self._handle_3d = bpy.types.SpaceView3D.draw_handler_add(
@@ -3739,7 +3432,7 @@ class VIEW3D_PT_maxline(bpy.types.Panel):
         cfg = settings(context)
 
         col = layout.column(align=True)
-        col.operator(CURVE_OT_maxline_draw.bl_idname,
+        col.operator("curve.maxline_draw",
                      text="Draw Line", icon='IPO_LINEAR')
         col.operator(CURVE_OT_maxline_freehand.bl_idname,
                      text="Draw Curve", icon='IPO_BEZIER')
@@ -3894,7 +3587,7 @@ def edit_menu_func(self, context):
 def menu_func(self, context):
     layout = self.layout
     layout.separator()
-    layout.operator(CURVE_OT_maxline_draw.bl_idname,
+    layout.operator("curve.maxline_draw",
                     text="Max Line", icon='IPO_LINEAR')
     layout.operator(CURVE_OT_maxline_freehand.bl_idname,
                     text="Max Curve (Freehand)", icon='IPO_BEZIER')
@@ -3914,7 +3607,8 @@ def menu_func(self, context):
 
 classes = (
     MAXLINE_PG_settings,
-    CURVE_OT_maxline_draw,
+    MAXLINE_PG_commit_point,
+    CURVE_OT_maxline_commit,
     CURVE_OT_maxline_freehand,
     CURVE_OT_maxline_circle,
     CURVE_OT_maxline_arc,
@@ -3941,6 +3635,10 @@ def register():
     if edit_menu is not None:
         edit_menu.append(edit_menu_func)
 
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post):
+        if _snap_cache_invalidate not in handlers:
+            handlers.append(_snap_cache_invalidate)
+
     if PREVIEW_STATE['handle'] is None:
         PREVIEW_STATE['handle'] = bpy.types.SpaceView3D.draw_handler_add(
             draw_live_preview_safe, (), 'WINDOW', 'POST_VIEW')
@@ -3953,6 +3651,9 @@ def unregister():
         PREVIEW_STATE['handle'] = None
     PREVIEW_STATE['key'] = None
     PREVIEW_STATE['lines'] = []
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post):
+        if _snap_cache_invalidate in handlers:
+            handlers.remove(_snap_cache_invalidate)
 
     bpy.types.VIEW3D_MT_curve_add.remove(menu_func)
     edit_menu = getattr(bpy.types, 'VIEW3D_MT_edit_curve_ctrlpoints', None)

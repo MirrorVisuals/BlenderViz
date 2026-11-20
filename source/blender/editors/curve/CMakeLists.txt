@@ -16,6 +16,7 @@ set(SRC
   curve_ops.cc
   editcurve.cc
   editcurve_add.cc
+  editcurve_maxline.cc
   editcurve_paint.cc
   editcurve_pen.cc
   editcurve_query.cc
