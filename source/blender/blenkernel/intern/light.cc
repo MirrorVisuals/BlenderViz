@@ -237,6 +237,11 @@ float BKE_light_area(const Light &light, const float4x4 &object_to_world)
   /* Make illumination power constant. */
   switch (light.type) {
     case LA_AREA: {
+      if (light.area_shape == LA_AREA_CYLINDER) {
+        /* Side and ends of the tube (object scale is not taken into account, as for points). */
+        const float r = light.radius;
+        return float(2.0 * M_PI) * r * (light.area_size + r);
+      }
       /* Rectangle area. */
       const float3x3 scalemat = object_to_world.view<3, 3>();
       const float3 scale = math::to_scale(scalemat);

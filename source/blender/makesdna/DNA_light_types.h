@@ -99,6 +99,9 @@ enum eLightAreaShape : short {
   // LA_AREA_BOX = 3,  /* Deprecated. */
   LA_AREA_DISK = 4,
   LA_AREA_ELLIPSE = 5,
+  /** BlenderViz: a tube along the local Z axis, #Light::area_size long, #Light::radius thick,
+   * emitting all around (as the V-Ray Cylinder Light). Rendered by Cycles as an emissive mesh. */
+  LA_AREA_CYLINDER = 6,
 };
 
 struct Light {

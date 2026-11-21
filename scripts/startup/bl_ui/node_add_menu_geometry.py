@@ -542,6 +542,7 @@ class NODE_MT_gn_mesh_operations_base(node_add_menu.NodeMenu):
         self.node_operator(layout, "GeometryNodeEditPoly")
         self.node_operator(layout, "GeometryNodeExtrudeMesh")
         self.node_operator(layout, "GeometryNodeFlipFaces")
+        self.node_operator(layout, "GeometryNodeFloorGenerator")
         self.node_operator(layout, "GeometryNodeMeshBevel")
         self.node_operator(layout, "GeometryNodeMeshBoolean")
         self.node_operator(layout, "GeometryNodeMeshToCurve")

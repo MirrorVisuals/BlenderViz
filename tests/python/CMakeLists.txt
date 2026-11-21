@@ -724,6 +724,16 @@ add_blender_test(
 )
 
 add_blender_test(
+  floor_generator
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_floor_generator.py
+)
+
+add_blender_test(
+  cycles_mesh_light
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_cycles_mesh_light.py
+)
+
+add_blender_test(
   geo_node_file_reporting
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_geo_node_file_reporting.py
   --

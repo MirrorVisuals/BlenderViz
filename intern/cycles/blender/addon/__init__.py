@@ -30,6 +30,8 @@ if "bpy" in locals():
         importlib.reload(sections)
     if "decals" in locals():
         importlib.reload(decals)
+    if "lights" in locals():
+        importlib.reload(lights)
     if "operators" in locals():
         importlib.reload(operators)
     if "properties" in locals():
@@ -147,6 +149,7 @@ def register():
     from . import light_mix
     from . import sections
     from . import decals
+    from . import lights
     from . import operators
     from . import properties
     from . import presets
@@ -164,6 +167,7 @@ def register():
     light_mix.register()
     sections.register()
     decals.register()
+    lights.register()
     operators.register()
     presets.register()
 
@@ -181,6 +185,7 @@ def unregister():
     from . import light_mix
     from . import sections
     from . import decals
+    from . import lights
     from . import operators
     from . import properties
     from . import presets
@@ -191,6 +196,7 @@ def unregister():
         bpy.utils.unregister_cli_command(cmd)
     cli_commands.clear()
 
+    lights.unregister()
     decals.unregister()
     sections.unregister()
     light_mix.unregister()

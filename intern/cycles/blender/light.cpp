@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "scene/light.h"
+#include "scene/mesh.h"
 
 #include "DNA_light_types.h"
 
@@ -93,6 +94,68 @@ void BlenderSync::sync_light(BObjectInfo &b_ob_info, Light *light)
 
   /* tag */
   light->tag_update(scene);
+}
+
+/* BlenderViz: Cylinder light. A tube along local Z, `area_size` long and `radius` thick, made as
+ * an emissive mesh with the light's own shader (see #BlenderSync::sync_lights). */
+void BlenderSync::sync_light_cylinder_mesh(BObjectInfo &b_ob_info, Mesh *mesh)
+{
+  const blender::Light &b_light = *blender::id_cast<blender::Light *>(b_ob_info.object_data);
+  const float r = max(b_light.radius, 1e-5f);
+  const float h = max(b_light.area_size, 1e-5f) * 0.5f;
+  const int n = 48;
+
+  /* A copy: setting a node array takes the data from the array it is given. */
+  array<Node *> used_shaders = mesh->get_used_shaders();
+  Mesh new_mesh;
+  new_mesh.set_used_shaders(used_shaders);
+  /* Side: two rings (smooth). Ends: two rings and two centers (flat). */
+  const int num_verts = 4 * n + 2;
+  const int num_tris = 2 * n + 2 * n;
+  new_mesh.resize_mesh(num_verts, num_tris);
+  packed_float3 *P = new_mesh.attributes.find(ATTR_STD_POSITION)->data_for_write<packed_float3>();
+  for (int i = 0; i < n; i++) {
+    const float a = M_2PI_F * float(i) / float(n);
+    const float x = r * cosf(a), y = r * sinf(a);
+    P[i] = make_float3(x, y, -h);
+    P[n + i] = make_float3(x, y, h);
+    P[2 * n + i] = make_float3(x, y, -h);
+    P[3 * n + i] = make_float3(x, y, h);
+  }
+  const int bottom_center = 4 * n, top_center = 4 * n + 1;
+  P[bottom_center] = make_float3(0.0f, 0.0f, -h);
+  P[top_center] = make_float3(0.0f, 0.0f, h);
+
+  int *tris = new_mesh.get_triangles().data();
+  bool *smooth = new_mesh.get_smooth().data();
+  int *shader = new_mesh.get_shader().data();
+  int t = 0;
+  auto add_tri = [&](const int a, const int b, const int c, const bool is_smooth) {
+    tris[t * 3 + 0] = a;
+    tris[t * 3 + 1] = b;
+    tris[t * 3 + 2] = c;
+    smooth[t] = is_smooth;
+    shader[t] = 0;
+    t++;
+  };
+  for (int i = 0; i < n; i++) {
+    const int j = (i + 1) % n;
+    /* Outward facing, counter-clockwise seen from outside. */
+    add_tri(i, j, n + j, true);
+    add_tri(i, n + j, n + i, true);
+    add_tri(bottom_center, 2 * n + j, 2 * n + i, false);
+    add_tri(top_center, 3 * n + i, 3 * n + j, false);
+  }
+
+  mesh->clear_non_sockets();
+  for (const SocketType &socket : new_mesh.type->inputs) {
+    if (socket.name == "use_motion_blur" || socket.name == "used_shaders") {
+      continue;
+    }
+    mesh->set_value(socket, new_mesh, socket);
+  }
+  mesh->attributes.update(std::move(new_mesh.attributes));
+  mesh->tag_update(scene, mesh->triangles_is_modified());
 }
 
 void BlenderSync::sync_background_light(blender::bScreen *b_screen, blender::View3D *b_v3d)

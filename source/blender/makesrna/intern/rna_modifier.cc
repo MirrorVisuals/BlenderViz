@@ -92,6 +92,13 @@ const EnumPropertyItem rna_enum_object_modifier_type_items[] = {
      "UVW Map",
      "Planar, box, cylindrical, spherical, shrink wrap or face mapping from a movable gizmo, "
      "optionally on selected faces only (as in 3ds Max)"},
+    {eModifierType_FloorGenerator,
+     "FLOOR_GENERATOR",
+     ICON_MESH_GRID,
+     "Floor Generator",
+     "Fill flat faces or closed outlines with boards or tiles in a pattern: running bond, "
+     "stacked, "
+     "herringbone, chevron, basket weave, hexagon or Versailles (as FloorGenerator in 3ds Max)"},
     {eModifierType_Unwrap,
      "UNWRAP",
      ICON_UV,
@@ -8280,6 +8287,278 @@ static void rna_def_modifier_uvw_map(BlenderRNA *brna)
   RNA_define_lib_overridable(false);
 }
 
+static void rna_def_modifier_floor_generator(BlenderRNA *brna)
+{
+  StructRNA *srna;
+  PropertyRNA *prop;
+
+  static const EnumPropertyItem pattern_items[] = {
+      {MOD_FLOORGEN_STANDARD,
+       "STANDARD",
+       0,
+       "Standard",
+       "Rows of boards, the joints of each row shifted by the row offset (running bond)"},
+      {MOD_FLOORGEN_STACKED, "STACKED", 0, "Stacked", "Rows and columns with the joints lined up"},
+      {MOD_FLOORGEN_HERRINGBONE,
+       "HERRINGBONE",
+       0,
+       "Herringbone",
+       "Boards at right angles in a zigzag (2 parallel boards: double herringbone)"},
+      {MOD_FLOORGEN_CHEVRON,
+       "CHEVRON",
+       0,
+       "Chevron",
+       "Boards cut at an angle, meeting in straight lines"},
+      {MOD_FLOORGEN_BASKET_WEAVE,
+       "BASKET_WEAVE",
+       0,
+       "Basket Weave",
+       "Squares of parallel boards, every other square turned"},
+      {MOD_FLOORGEN_HEXAGON, "HEXAGON", 0, "Hexagon", "Hexagonal tiles"},
+      {MOD_FLOORGEN_VERSAILLES,
+       "VERSAILLES",
+       0,
+       "Versailles",
+       "Square panels: a mitred frame around a diagonal basket weave"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
+  srna = RNA_def_struct(brna, "FloorGeneratorModifier", "Modifier");
+  RNA_def_struct_ui_text(srna,
+                         "Floor Generator Modifier",
+                         "Fill flat faces or closed outlines with boards or tiles in a pattern");
+  RNA_def_struct_sdna(srna, "FloorGeneratorModifierData");
+  RNA_def_struct_ui_icon(srna, ICON_MESH_GRID);
+
+  RNA_define_lib_overridable(true);
+
+  prop = RNA_def_property(srna, "pattern", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_items(prop, pattern_items);
+  RNA_def_property_ui_text(prop, "Pattern", "How the boards are laid");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+
+  auto def_float = [&](const char *identifier,
+                       const PropertySubType subtype,
+                       const float min,
+                       const float soft_max,
+                       const char *name,
+                       const char *description) {
+    prop = RNA_def_property(srna, identifier, PROP_FLOAT, subtype);
+    RNA_def_property_range(prop, min, FLT_MAX);
+    RNA_def_property_ui_range(prop, min, soft_max, subtype == PROP_ANGLE ? 100 : 1, 4);
+    RNA_def_property_ui_text(prop, name, description);
+    RNA_def_property_update(prop, 0, "rna_Modifier_update");
+    return prop;
+  };
+  auto def_factor = [&](const char *identifier, const char *name, const char *description) {
+    prop = RNA_def_property(srna, identifier, PROP_FLOAT, PROP_FACTOR);
+    RNA_def_property_range(prop, 0.0f, 1.0f);
+    RNA_def_property_ui_text(prop, name, description);
+    RNA_def_property_update(prop, 0, "rna_Modifier_update");
+    return prop;
+  };
+  auto def_flag =
+      [&](const char *identifier, const int flag, const char *name, const char *description) {
+        prop = RNA_def_property(srna, identifier, PROP_BOOLEAN, PROP_NONE);
+        RNA_def_property_boolean_sdna(prop, nullptr, "flag", flag);
+        RNA_def_property_ui_text(prop, name, description);
+        RNA_def_property_update(prop, 0, "rna_Modifier_update");
+        return prop;
+      };
+  const char *spread_tip =
+      "How the values are spread between the minimum and the maximum: low for mostly the "
+      "maximum, high for mostly the minimum";
+
+  /* Boards. */
+  def_float("length",
+            PROP_DISTANCE,
+            0.001f,
+            5.0f,
+            "Length",
+            "Length of the boards (the maximum when they vary); the square of Basket Weave");
+  def_float("length_min", PROP_DISTANCE, 0.001f, 5.0f, "Min Length", "Shortest board");
+  def_factor("length_spread", "Length Spread", spread_tip);
+  def_flag("use_vary_length",
+           MOD_FLOORGEN_VARY_LENGTH,
+           "Vary Length",
+           "Random board lengths, from the minimum to the length");
+  def_float("width",
+            PROP_DISTANCE,
+            0.001f,
+            1.0f,
+            "Width",
+            "Width of the boards (the maximum when they vary)");
+  def_float("width_min", PROP_DISTANCE, 0.001f, 1.0f, "Min Width", "Narrowest row of boards");
+  def_factor("width_spread", "Width Spread", spread_tip);
+  def_flag("use_vary_width",
+           MOD_FLOORGEN_VARY_WIDTH,
+           "Vary Width",
+           "Random widths per row, from the minimum to the width");
+  def_float("grout_length",
+            PROP_DISTANCE,
+            0.0f,
+            0.02f,
+            "Grout Length",
+            "Gap between the ends of the boards");
+  def_float("grout_width",
+            PROP_DISTANCE,
+            0.0f,
+            0.02f,
+            "Grout Width",
+            "Gap between the sides of the boards");
+  def_factor("row_offset", "Row Offset", "Shift of each row, as a fraction of the board length");
+
+  /* Pattern specific. */
+  prop = RNA_def_property(srna, "parallel_boards", PROP_INT, PROP_NONE);
+  RNA_def_property_range(prop, 1, 16);
+  RNA_def_property_ui_text(
+      prop,
+      "Parallel Boards",
+      "Boards side by side in each arm of the herringbone (2: double herringbone)");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  def_float("chevron_angle",
+            PROP_ANGLE,
+            DEG2RADF(5.0f),
+            DEG2RADF(85.0f),
+            "Chevron Angle",
+            "Angle of the boards to the cut line");
+  RNA_def_property_range(prop, DEG2RADF(5.0f), DEG2RADF(85.0f));
+  prop = RNA_def_property(srna, "sub_boards", PROP_INT, PROP_NONE);
+  RNA_def_property_range(prop, 1, 16);
+  RNA_def_property_ui_text(prop, "Sub Boards", "Boards in each square (Basket Weave, Versailles)");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  def_float("hex_radius",
+            PROP_DISTANCE,
+            0.001f,
+            1.0f,
+            "Hexagon Radius",
+            "Size of a hexagon tile (to its corners)");
+  def_float("panel_size", PROP_DISTANCE, 0.01f, 3.0f, "Panel Size", "Size of a Versailles panel");
+
+  /* Height. */
+  def_float(
+      "height", PROP_DISTANCE, 0.0f, 0.05f, "Height", "Thickness of the boards (0: flat faces)");
+  def_float("bevel_height",
+            PROP_DISTANCE,
+            0.0f,
+            0.01f,
+            "Bevel Height",
+            "Height of the bevel along the top edges");
+  def_float("bevel_width",
+            PROP_DISTANCE,
+            0.0f,
+            0.01f,
+            "Bevel Width",
+            "Width of the bevel along the top edges");
+  def_flag("use_bevel_45",
+           MOD_FLOORGEN_BEVEL_45,
+           "45 Degree Bevel",
+           "The bevel width is the bevel height");
+
+  /* Variation. */
+  const float soft_angle = DEG2RADF(10.0f);
+  def_float("rotation_max",
+            PROP_ANGLE,
+            0.0f,
+            soft_angle,
+            "Rotation",
+            "Random rotation of each board around itself (limited by the grout and the overlap)");
+  def_float(
+      "rotation_min", PROP_ANGLE, 0.0f, soft_angle, "Min Rotation", "Smallest random rotation");
+  def_factor("rotation_spread", "Rotation Spread", spread_tip);
+  def_float("offset_x_max",
+            PROP_DISTANCE,
+            0.0f,
+            0.05f,
+            "Offset X",
+            "Random move of each board along its length (limited by the grout and the overlap)");
+  def_float(
+      "offset_x_min", PROP_DISTANCE, 0.0f, 0.05f, "Min Offset X", "Smallest random move along");
+  def_factor("offset_x_spread", "Offset X Spread", spread_tip);
+  def_float("offset_y_max",
+            PROP_DISTANCE,
+            0.0f,
+            0.05f,
+            "Offset Y",
+            "Random move of each board across (limited by the grout and the overlap)");
+  def_float(
+      "offset_y_min", PROP_DISTANCE, 0.0f, 0.05f, "Min Offset Y", "Smallest random move across");
+  def_factor("offset_y_spread", "Offset Y Spread", spread_tip);
+  def_float("tilt_max",
+            PROP_ANGLE,
+            0.0f,
+            soft_angle,
+            "Tilt",
+            "Random tilt of the top of each board, for uneven boards");
+  def_float("tilt_min", PROP_ANGLE, 0.0f, soft_angle, "Min Tilt", "Smallest random tilt");
+  def_factor("tilt_spread", "Tilt Spread", spread_tip);
+  def_flag("use_offset_y_locked",
+           MOD_FLOORGEN_OFFSET_Y_LOCKED,
+           "Offset Y as X",
+           "The offset across the boards uses the values of the offset along them");
+  def_float("overlap",
+            PROP_DISTANCE,
+            0.0f,
+            0.02f,
+            "Overlap",
+            "How far boards may move into each other with the random rotation and offset, past "
+            "the grout");
+  def_factor("missing", "Missing Boards", "Fraction of the boards left out, for a damaged floor");
+
+  /* Placement. */
+  def_float("pattern_scale", PROP_NONE, 0.001f, 10.0f, "Scale", "Scale of the whole pattern");
+  prop = RNA_def_property(srna, "direction", PROP_FLOAT, PROP_ANGLE);
+  RNA_def_property_ui_text(prop, "Direction", "Rotation of the whole pattern");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  prop = RNA_def_property(srna, "pattern_offset", PROP_FLOAT, PROP_TRANSLATION);
+  RNA_def_property_array(prop, 2);
+  RNA_def_property_ui_text(prop, "Offset", "Move the whole pattern (X and Y of the floor)");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  prop = RNA_def_property(srna, "seed", PROP_INT, PROP_NONE);
+  RNA_def_property_ui_text(prop, "Seed", "Random seed of the board variation");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  def_float("weld",
+            PROP_DISTANCE,
+            0.0f,
+            0.01f,
+            "Weld Threshold",
+            "Board corners closer than this are merged and smaller pieces of boards left out (at "
+            "the edges of the floor)");
+
+  /* UVs and materials. */
+  prop = RNA_def_property(srna, "uv_layer", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, nullptr, "uvmap_name");
+  RNA_def_property_ui_text(
+      prop, "UV Map", "UV map written (a full size board spans 0 to 1); empty: none");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  def_flag("use_random_flip_u",
+           MOD_FLOORGEN_RANDOM_FLIP_U,
+           "Random Flip U",
+           "Mirror the UVs of random boards along their length");
+  def_flag("use_random_flip_v",
+           MOD_FLOORGEN_RANDOM_FLIP_V,
+           "Random Flip V",
+           "Mirror the UVs of random boards across");
+  def_flag("use_random_offset_u",
+           MOD_FLOORGEN_RANDOM_OFFSET_U,
+           "Random Offset U",
+           "Move the UVs of each board by a random amount along its length");
+  def_flag("use_random_offset_v",
+           MOD_FLOORGEN_RANDOM_OFFSET_V,
+           "Random Offset V",
+           "Move the UVs of each board by a random amount across");
+  prop = RNA_def_property(srna, "material_count", PROP_INT, PROP_NONE);
+  RNA_def_property_range(prop, 1, 32767);
+  RNA_def_property_ui_range(prop, 1, 16, 1, -1);
+  RNA_def_property_ui_text(
+      prop,
+      "Random Materials",
+      "Give each board a random material slot of the first ones (1: the material of the face)");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+
+  RNA_define_lib_overridable(false);
+}
+
 static void rna_def_modifier_unwrap(BlenderRNA *brna)
 {
   StructRNA *srna;
@@ -12831,6 +13110,7 @@ void RNA_def_modifier(BlenderRNA *brna)
   rna_def_modifier_edit_poly(brna);
   rna_def_modifier_uvw_map(brna);
   rna_def_modifier_unwrap(brna);
+  rna_def_modifier_floor_generator(brna);
   rna_def_modifier_wireframe(brna);
   rna_def_modifier_datatransfer(brna);
   rna_def_modifier_normaledit(brna);

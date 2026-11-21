@@ -92,6 +92,7 @@ set(ADDON_FILES
   addon/presets.py
   addon/sections.py
   addon/decals.py
+  addon/lights.py
   addon/properties.py
   addon/ui.py
   addon/version_update.py

@@ -10,9 +10,9 @@ BlenderViz
 An experimental fork of **Blender 5.2.3 LTS** that brings a 3ds Max style modifier workflow to
 Blender: editable modeling levels in the modifier stack, UVW Map and Unwrap modifiers, a solid
 Extrude Manifold, a Slice Plane, camera tilt correction, a V-Ray style frame buffer with
-interactive render and Light Mix, quick sun caustics, architectural sections, decals, 3ds Max
-style spline drawing (Max Line), and a few more rendering extras, for architectural
-visualization. Branch: `edit-poly-stack`.
+interactive render and Light Mix, mesh and cylinder lights, quick sun caustics, architectural
+sections, decals, 3ds Max style spline drawing (Max Line), a floor generator, and a few more
+rendering extras, for architectural visualization. Branch: `edit-poly-stack`.
 Experimental and unofficial: not affiliated with the Blender Foundation.
 
 What is different from Blender 5.2.3
@@ -150,6 +150,27 @@ options are in the tool settings), **Add > Curve**, and **Shift+Alt+L** for a li
 - The old **maxline** extension is not loaded any more in BlenderViz (it would add everything
   twice): it can be uninstalled.
 
+### Floor Generator, as FloorGenerator for 3ds Max
+
+A modifier (Add Modifier > Generate) and a Geometry Nodes node (Mesh > Operations) that fill the
+flat faces of a mesh, a closed curve (a room outline drawn with Max Line) or closed edge loops
+with boards or tiles, cut to the edges. Faces in the same plane share the pattern, so it
+continues across a floor made of several faces; walls get their own.
+
+- **Patterns:** Standard (running bond with Row Offset), Stacked, Herringbone (Parallel Boards 2:
+  double herringbone), Chevron (Angle), Basket Weave (Sub Boards), Hexagon (Radius), Versailles
+  (Panel Size: a mitred frame around a diagonal basket weave).
+- **Boards:** length and width, each with a minimum and a spread to vary them (Standard and
+  Stacked), grout along and across, height, and a bevel (45 degrees, or a width of its own).
+- **Variation per board:** rotation, offset along and across, and tilt, each from a minimum to
+  a maximum with a spread, kept within the grout unless Overlap allows more; Missing Boards for
+  a damaged floor.
+- **Placement:** scale, direction, offset and seed of the whole pattern; Weld Threshold drops
+  the slivers at the edges.
+- **Texturing:** UVs per board (a full board spans 0 to 1) with random flip and offset,
+  `board_id` and `board_random` attributes per face (an Attribute node gives each board its own
+  color, as MultiTexture does), and Random Materials over the first material slots.
+
 ### Slice Plane, as in 3ds Max
 
 - **Plane empty:** Add > Empty > Plane, or the **Add Slice Plane** tool in the Object Mode
@@ -234,6 +255,19 @@ sidebars, and in a Light Mix button of the Image Editor header.
   just to have something to mix) are there too.
 - **From the Light Mix add-on:** Import Light Mix Add-on Mix takes over its settings and
   removes its compositor nodes. Disable the add-on afterwards.
+
+### Cycles: Mesh Light and Cylinder Light, as in V-Ray
+
+- **Mesh Light** (Object > Mesh Light, Cycles): any mesh, curve or text object becomes a light.
+  Its faces emit with the light's color or temperature and its power in watts (spread over the
+  surface as for an area light, so a mesh light and an area light of the same size and power
+  light the scene the same) or a strength. One sided (along the normals) or double sided,
+  visible to the camera or not; the materials are kept for when it is turned off. Light Mix
+  scans and bakes it as a light.
+- **Cylinder Light** (Add > Light > Cylinder, or Shape: Cylinder of an area light): a tube along
+  the light's Z axis that emits all around, like a fluorescent tube or a neon, with a length and
+  a radius and its power in watts. Cycles renders it as an emissive tube; EEVEE shows it as a
+  rectangle.
 
 ### Cycles: Quick Caustics, as V-Ray's quick sun caustics
 

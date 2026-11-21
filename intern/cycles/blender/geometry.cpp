@@ -33,6 +33,10 @@ static Geometry::Type determine_geom_type(BObjectInfo &b_ob_info, bool use_parti
       case blender::LA_SUN:
         return Geometry::SUN_LIGHT;
       case blender::LA_AREA:
+        /* BlenderViz: the Cylinder light is an emissive mesh. */
+        if (b_light.area_shape == blender::LA_AREA_CYLINDER) {
+          return Geometry::MESH;
+        }
         return Geometry::AREA_LIGHT;
       default:
         /* Should be handled in `sync_background_light()`. */
@@ -69,6 +73,12 @@ array<Node *> BlenderSync::find_used_shaders(blender::Object &b_ob)
     return used_shaders;
   }
 
+  /* BlenderViz: Mesh Light, the object's own emission shader on all its faces. */
+  if (object_is_mesh_light(b_ob)) {
+    find_shader(&b_ob.id, used_shaders, scene->default_surface);
+    return used_shaders;
+  }
+
   blender::Material *material_override = view_layer.material_override;
   Shader *default_shader = (b_ob.type == blender::OB_VOLUME) ? scene->default_volume :
                                                                scene->default_surface;
@@ -102,8 +112,10 @@ Geometry *BlenderSync::sync_geometry(BObjectInfo &b_ob_info,
 {
   /* Test if we can instance or if the object is modified. */
   const Geometry::Type geom_type = determine_geom_type(b_ob_info, use_particle_hair);
+  /* A Mesh Light has its own shader, so its geometry is not shared with other objects. */
   blender::ID *const b_key_id = (b_ob_info.is_real_object_data() &&
-                                 BKE_object_is_modified(*b_ob_info.real_object)) ?
+                                 (BKE_object_is_modified(*b_ob_info.real_object) ||
+                                  object_is_mesh_light(*b_ob_info.real_object))) ?
                                     &b_ob_info.real_object->id :
                                     b_ob_info.object_data;
   const GeometryKey key(b_key_id, geom_type);
@@ -213,6 +225,9 @@ Geometry *BlenderSync::sync_geometry(BObjectInfo &b_ob_info,
       PointCloud *pointcloud = static_cast<PointCloud *>(geom);
       sync_pointcloud(pointcloud, b_ob_info);
     }
+    else if (GS(b_ob_info.object_data->name) == blender::ID_LA) {
+      sync_light_cylinder_mesh(b_ob_info, static_cast<Mesh *>(geom));
+    }
     else {
       Mesh *mesh = static_cast<Mesh *>(geom);
       sync_mesh(b_ob_info, mesh);
@@ -251,8 +266,8 @@ void BlenderSync::sync_geometry_motion(BObjectInfo &b_ob_info,
     return;
   }
 
-  /* Nothing to do for lights. */
-  if (geom->is_light()) {
+  /* Nothing to do for lights (the Cylinder light's mesh doesn't deform). */
+  if (geom->is_light() || GS(b_ob_info.object_data->name) == blender::ID_LA) {
     return;
   }
 

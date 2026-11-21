@@ -1580,6 +1580,11 @@ def _section_shape_update(self, _context):
         ob.empty_display_type = 'CUBE' if self.section_shape == 'BOX' else 'PLANE'
 
 
+def _mesh_light_update(self, _context):
+    # Redraw the render with the new light: Cycles reads the settings when the object changes.
+    self.id_data.update_tag()
+
+
 class CyclesObjectSettings(bpy.types.PropertyGroup):
     __slots__ = ()
 
@@ -1812,6 +1817,68 @@ class CyclesObjectSettings(bpy.types.PropertyGroup):
         description="Receive approximate caustics from refractive materials in shadows on this object. "
         "Lights, caster and receiver objects must have shadow caustics options set to enable this",
         default=False,
+    )
+
+    # Mesh Light (BlenderViz): the object becomes a light, as the V-Ray Mesh Light.
+    is_mesh_light: BoolProperty(
+        name="Mesh Light",
+        description="Make this object a light: its faces emit light with the settings below instead of "
+        "their materials, which are kept (Cycles)",
+        default=False,
+        update=_mesh_light_update,
+    )
+    mesh_light_units: EnumProperty(
+        name="Units",
+        items=(
+            ('POWER', "Power", "Total power in watts, spread over the surface as for an area light, so the "
+             "light stays the same when the mesh is scaled"),
+            ('STRENGTH', "Strength", "Emission strength of the surface, as in an Emission shader"),
+        ),
+        default='POWER',
+        update=_mesh_light_update,
+    )
+    mesh_light_power: FloatProperty(
+        name="Power",
+        description="Total light power emitted by the surface",
+        min=0.0, soft_max=10000.0, default=100.0,
+        subtype='POWER', unit='POWER',
+        update=_mesh_light_update,
+    )
+    mesh_light_strength: FloatProperty(
+        name="Strength",
+        description="Emission strength of the surface",
+        min=0.0, soft_max=1000.0, default=10.0,
+        update=_mesh_light_update,
+    )
+    mesh_light_exposure: FloatProperty(
+        name="Exposure",
+        description="Scales the light by 2 to the power of this, in stops",
+        soft_min=-10.0, soft_max=10.0, default=0.0,
+        update=_mesh_light_update,
+    )
+    mesh_light_color: FloatVectorProperty(
+        name="Color",
+        description="Color of the light (a tint with a temperature)",
+        subtype='COLOR', size=3, min=0.0, soft_max=1.0, default=(1.0, 1.0, 1.0),
+        update=_mesh_light_update,
+    )
+    mesh_light_use_temperature: BoolProperty(
+        name="Use Temperature",
+        description="Color the light by a color temperature",
+        default=False,
+        update=_mesh_light_update,
+    )
+    mesh_light_temperature: FloatProperty(
+        name="Temperature",
+        description="Color temperature of the light, in kelvin",
+        min=800.0, max=20000.0, default=6500.0,
+        update=_mesh_light_update,
+    )
+    mesh_light_double_sided: BoolProperty(
+        name="Double Sided",
+        description="Emit from both sides of the faces (else only from the front, along the normals)",
+        default=False,
+        update=_mesh_light_update,
     )
 
     @classmethod

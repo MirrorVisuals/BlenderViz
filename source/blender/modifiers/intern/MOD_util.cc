@@ -256,6 +256,7 @@ void modifier_type_init(ModifierTypeInfo *types[])
   INIT_TYPE(EditPoly);
   INIT_TYPE(UVWMap);
   INIT_TYPE(Unwrap);
+  INIT_TYPE(FloorGenerator);
   INIT_TYPE(DataTransfer);
   INIT_TYPE(NormalEdit);
   INIT_TYPE(CorrectiveSmooth);

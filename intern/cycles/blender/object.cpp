@@ -108,6 +108,22 @@ bool BlenderSync::object_is_light(blender::Object &b_ob)
   return (b_ob_data && GS(b_ob_data->name) == blender::ID_LA);
 }
 
+bool BlenderSync::object_is_mesh_light(blender::Object &b_ob)
+{
+  if (!ELEM(b_ob.type,
+            blender::OB_MESH,
+            blender::OB_CURVES_LEGACY,
+            blender::OB_SURF,
+            blender::OB_FONT,
+            blender::OB_MBALL))
+  {
+    return false;
+  }
+  blender::PointerRNA b_ob_rna_ptr = RNA_id_pointer_create(&b_ob.id);
+  blender::PointerRNA cobject = RNA_pointer_get(&b_ob_rna_ptr, "cycles");
+  return get_boolean(cobject, "is_mesh_light");
+}
+
 bool BlenderSync::object_is_camera(blender::Object &b_ob)
 {
   blender::ID *b_ob_data = object_get_data(b_ob, true);
@@ -286,8 +302,11 @@ Object *BlenderSync::sync_object(blender::ViewLayer &b_view_layer,
 
   object->set_visibility(visibility);
 
-  object->set_is_shadow_catcher((b_ob.visibility_flag & blender::OB_SHADOW_CATCHER) != 0 ||
-                                (b_parent->visibility_flag & blender::OB_SHADOW_CATCHER) != 0);
+  /* Light objects have the shadow catcher flag on by default, which lights ignore. The Cylinder
+   * light is a mesh, as a shadow catcher it would not emit. */
+  object->set_is_shadow_catcher(!object_is_light(b_ob) &&
+                                ((b_ob.visibility_flag & blender::OB_SHADOW_CATCHER) != 0 ||
+                                 (b_parent->visibility_flag & blender::OB_SHADOW_CATCHER) != 0));
 
   object->set_shadow_terminator_shading_offset(b_ob.shadow_terminator_shading_offset);
 

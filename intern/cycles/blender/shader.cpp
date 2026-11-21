@@ -33,8 +33,16 @@
 
 #include "DEG_depsgraph_query.hh"
 
+#include "BKE_mesh.hh"
+#include "BKE_object.hh"
+
+#include "BLI_math_matrix.hh"
+#include "BLI_math_vector.hh"
+
 #include "DNA_light_types.h"
 #include "DNA_material_types.h"
+#include "DNA_mesh_types.h"
+#include "DNA_object_types.h"
 #include "DNA_world_types.h"
 
 CCL_NAMESPACE_BEGIN
@@ -1931,6 +1939,44 @@ void BlenderSync::sync_world(blender::Depsgraph &b_depsgraph,
 
 /* Sync Lights */
 
+/* BlenderViz: emission for the Cylinder light and the Mesh Light. `strength` is the emission
+ * strength (radiance), one sided (front faces) unless `double_sided`. */
+static void build_emitter_graph(ShaderGraph *graph,
+                                const float3 color,
+                                const bool use_temperature,
+                                const float temperature,
+                                const float strength,
+                                const bool double_sided)
+{
+  EmissionNode *emission = graph->create_node<EmissionNode>();
+  emission->set_color(color);
+  emission->set_strength(strength);
+  if (use_temperature) {
+    BlackbodyNode *blackbody = graph->create_node<BlackbodyNode>();
+    blackbody->set_temperature(temperature);
+    MixColorNode *tint = graph->create_node<MixColorNode>();
+    tint->set_blend_type(NODE_MIX_MUL);
+    tint->set_fac(1.0f);
+    tint->set_a(color);
+    graph->connect(blackbody->output("Color"), tint->input("B"));
+    graph->connect(tint->output("Result"), emission->input("Color"));
+  }
+  if (!double_sided) {
+    /* Nothing from the back of the faces. */
+    GeometryNode *geometry = graph->create_node<GeometryNode>();
+    MathNode *front = graph->create_node<MathNode>();
+    front->set_math_type(NODE_MATH_SUBTRACT);
+    front->set_value1(1.0f);
+    graph->connect(geometry->output("Backfacing"), front->input("Value2"));
+    MathNode *scaled = graph->create_node<MathNode>();
+    scaled->set_math_type(NODE_MATH_MULTIPLY);
+    scaled->set_value2(strength);
+    graph->connect(front->output("Value"), scaled->input("Value1"));
+    graph->connect(scaled->output("Value"), emission->input("Strength"));
+  }
+  graph->connect(emission->output("Emission"), graph->output()->input("Surface"));
+}
+
 void BlenderSync::sync_lights(blender::Depsgraph &b_depsgraph, bool update_all, bool update_time)
 {
   shader_map.set_default(scene->default_light);
@@ -1958,8 +2004,28 @@ void BlenderSync::sync_lights(blender::Depsgraph &b_depsgraph, bool update_all, 
     {
       unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
 
+      if (b_light.type == blender::LA_AREA && b_light.area_shape == blender::LA_AREA_CYLINDER) {
+        /* Cylinder light: an emissive tube with the light's power (W) over its surface, as
+         * Cycles does for area lights (radiance = power / (pi * area)). */
+        shader->name = BKE_id_name(b_light.id);
+        blender::PointerRNA light_rna_ptr = RNA_id_pointer_create(&b_light.id);
+        float3 color = make_float3(b_light.r, b_light.g, b_light.b);
+        if (b_light.mode & blender::LA_USE_TEMPERATURE) {
+          float temperature_color[3];
+          RNA_float_get_array(&light_rna_ptr, "temperature_color", temperature_color);
+          color *= make_float3(temperature_color[0], temperature_color[1], temperature_color[2]);
+        }
+        const float r = max(b_light.radius, 1e-5f);
+        const float area = M_2PI_F * r * (max(b_light.area_size, 1e-5f) + r);
+        float strength = b_light.energy * exp2f(b_light.exposure);
+        if (!(b_light.mode & blender::LA_UNNORMALIZED)) {
+          strength *= M_1_PI_F / area;
+        }
+        build_emitter_graph(graph.get(), color, false, 0.0f, strength, false);
+        shader->set_emission_sampling_method(EMISSION_SAMPLING_FRONT);
+      }
       /* create nodes */
-      if (b_light.nodetree) {
+      else if (b_light.nodetree) {
         shader->name = BKE_id_name(b_light.id);
 
         add_nodes(scene, *b_engine, *b_data, *b_scene, graph.get(), *b_light.nodetree);
@@ -1993,6 +2059,81 @@ void BlenderSync::sync_shaders(blender::Depsgraph &b_depsgraph,
   sync_world(b_depsgraph, b_screen, b_v3d, update_all, update_time);
   sync_lights(b_depsgraph, update_all, update_time);
   sync_materials(b_depsgraph, update_all, update_time);
+  sync_mesh_lights(b_depsgraph, update_all);
+}
+
+/* BlenderViz: Mesh Light. Any mesh made a light (Object > Cycles > Mesh Light), as the V-Ray Mesh
+ * Light: its faces get this emission instead of their materials, the materials are kept. */
+static float object_surface_area(blender::Object &b_ob)
+{
+  const blender::Mesh *mesh = blender::BKE_object_get_evaluated_mesh(&b_ob);
+  if (mesh == nullptr) {
+    return 0.0f;
+  }
+  const blender::float4x4 &mat = b_ob.object_to_world();
+  const blender::Span<blender::float3> positions = mesh->vert_positions();
+  const blender::Span<int> corner_verts = mesh->corner_verts();
+  double area = 0.0;
+  for (const blender::int3 &tri : mesh->corner_tris()) {
+    const blender::float3 a = blender::math::transform_point(mat, positions[corner_verts[tri[0]]]);
+    const blender::float3 b = blender::math::transform_point(mat, positions[corner_verts[tri[1]]]);
+    const blender::float3 c = blender::math::transform_point(mat, positions[corner_verts[tri[2]]]);
+    area += 0.5 * blender::math::length(blender::math::cross(b - a, c - a));
+  }
+  return float(area);
+}
+
+void BlenderSync::sync_mesh_lights(blender::Depsgraph &b_depsgraph, bool update_all)
+{
+  shader_map.set_default(scene->default_surface);
+
+  blender::DEGIDIterData data{};
+  data.graph = &b_depsgraph;
+  ITER_BEGIN (blender::DEG_iterator_ids_begin,
+              blender::DEG_iterator_ids_next,
+              blender::DEG_iterator_ids_end,
+              &data,
+              blender::ID *,
+              b_id)
+  {
+    if (GS(b_id->name) != blender::ID_OB) {
+      continue;
+    }
+    blender::Object &b_ob = blender::id_cast<blender::Object &>(*b_id);
+    if (!object_is_mesh_light(b_ob)) {
+      continue;
+    }
+    Shader *shader;
+    if (shader_map.add_or_update(&shader, &b_ob.id) || update_all) {
+      blender::PointerRNA b_ob_rna_ptr = RNA_id_pointer_create(&b_ob.id);
+      blender::PointerRNA cobject = RNA_pointer_get(&b_ob_rna_ptr, "cycles");
+      const bool double_sided = get_boolean(cobject, "mesh_light_double_sided");
+      float strength;
+      if (get_enum(cobject, "mesh_light_units") == 0) {
+        /* Power (W): spread over the surface (and both sides), as for area lights. */
+        const float area = object_surface_area(b_ob) * (double_sided ? 2.0f : 1.0f);
+        strength = (area > 0.0f) ? get_float(cobject, "mesh_light_power") * M_1_PI_F / area : 0.0f;
+      }
+      else {
+        strength = get_float(cobject, "mesh_light_strength");
+      }
+      strength *= exp2f(get_float(cobject, "mesh_light_exposure"));
+
+      unique_ptr<ShaderGraph> graph = make_unique<ShaderGraph>();
+      build_emitter_graph(graph.get(),
+                          get_float3(cobject, "mesh_light_color"),
+                          get_boolean(cobject, "mesh_light_use_temperature"),
+                          get_float(cobject, "mesh_light_temperature"),
+                          strength,
+                          double_sided);
+      shader->name = BKE_id_name(b_ob.id);
+      shader->set_emission_sampling_method(double_sided ? EMISSION_SAMPLING_FRONT_BACK :
+                                                          EMISSION_SAMPLING_FRONT);
+      shader->set_graph(std::move(graph));
+      shader->tag_update(scene);
+    }
+  }
+  ITER_END;
 }
 
 CCL_NAMESPACE_END

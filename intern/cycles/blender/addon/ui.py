@@ -1652,6 +1652,9 @@ class CYCLES_LIGHT_PT_light(CyclesButtonsPanel, Panel):
             elif light.shape in {'RECTANGLE', 'ELLIPSE'}:
                 sub.prop(light, "size", text="Size X")
                 sub.prop(light, "size_y", text="Y")
+            elif light.shape == 'CYLINDER':
+                sub.prop(light, "size", text="Length")
+                sub.prop(light, "shadow_soft_size", text="Radius")
 
 
 class CYCLES_LIGHT_PT_settings(CyclesButtonsPanel, Panel):

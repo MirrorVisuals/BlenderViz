@@ -513,7 +513,7 @@ static bool WIDGETGROUP_light_area_poll(const bContext *C, wmGizmoGroupType * /*
     const Object *ob = base->object;
     if (ob->type == OB_LAMP) {
       const Light *la = id_cast<Light *>(ob->data);
-      if (la->type == LA_AREA) {
+      if (la->type == LA_AREA && la->area_shape != LA_AREA_CYLINDER) {
         if (BKE_id_is_editable(CTX_data_main(C), &la->id)) {
           return true;
         }

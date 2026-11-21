@@ -257,6 +257,8 @@ class BlenderSync {
   /* Light */
   Geometry *create_light(BObjectInfo &b_ob_info);
   void sync_light(BObjectInfo &b_ob_info, Light *light);
+  void sync_light_cylinder_mesh(BObjectInfo &b_ob_info, Mesh *mesh);
+  void sync_mesh_lights(blender::Depsgraph &b_depsgraph, bool update_all);
   void sync_background_light(blender::bScreen *b_screen, blender::View3D *b_v3d);
 
   /* Particles */
@@ -274,6 +276,8 @@ class BlenderSync {
   bool object_is_geometry(BObjectInfo &b_ob_info);
   bool object_can_have_geometry(blender::Object &b_ob);
   bool object_is_light(blender::Object &b_ob);
+  /** BlenderViz: a mesh-like object with Mesh Light on (Object > Cycles). */
+  static bool object_is_mesh_light(blender::Object &b_ob);
   bool object_is_camera(blender::Object &b_ob);
 
   blender::Object *get_camera_object(blender::View3D *b_v3d, blender::RegionView3D *b_rv3d);

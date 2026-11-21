@@ -475,6 +475,12 @@ static void rna_def_area_light(BlenderRNA *brna)
       {LA_AREA_RECT, "RECTANGLE", 0, "Rectangle", ""},
       {LA_AREA_DISK, "DISK", 0, "Disk", ""},
       {LA_AREA_ELLIPSE, "ELLIPSE", 0, "Ellipse", ""},
+      {LA_AREA_CYLINDER,
+       "CYLINDER",
+       0,
+       "Cylinder",
+       "A tube along the local Z axis that emits all around, like a fluorescent tube (Size is "
+       "its length, Radius its radius)"},
       {0, nullptr, 0, nullptr, nullptr},
   };
 

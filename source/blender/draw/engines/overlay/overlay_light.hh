@@ -11,6 +11,7 @@
 #include "DNA_light_types.h"
 
 #include "BLI_math_matrix.h"
+#include "BLI_math_matrix.hh"
 
 #include "overlay_base.hh"
 
@@ -38,6 +39,7 @@ class Lights : Overlay {
     LightInstanceBuf spot_cone_front_buf = {selection_type_, "spot_cone_front_buf"};
     LightInstanceBuf area_disk_buf = {selection_type_, "area_disk_buf"};
     LightInstanceBuf area_square_buf = {selection_type_, "area_square_buf"};
+    LightInstanceBuf area_cylinder_buf = {selection_type_, "area_cylinder_buf"};
   } call_buffers_{selection_type_};
 
  public:
@@ -61,6 +63,7 @@ class Lights : Overlay {
     call_buffers_.spot_cone_front_buf.clear();
     call_buffers_.area_disk_buf.clear();
     call_buffers_.area_square_buf.clear();
+    call_buffers_.area_cylinder_buf.clear();
   }
 
   void object_sync(Manager & /*manager*/,
@@ -146,6 +149,17 @@ class Lights : Overlay {
         break;
       }
       case LA_AREA:
+        if (la.area_shape == LA_AREA_CYLINDER) {
+          /* The tube: the cylinder of the empties, scaled to the radius and half the length. */
+          const float r = max_ff(la.radius, 1e-4f);
+          ExtraInstanceData tube(
+              ob_ref.object->object_to_world() *
+                  math::from_scale<float4x4>(float3(r, r, max_ff(la.area_size * 0.5f, 1e-4f))),
+              data.color_,
+              1.0f);
+          call_buffers_.area_cylinder_buf.append(tube, select_id);
+          break;
+        }
         const bool uniform_scale = !ELEM(la.area_shape, LA_AREA_RECT, LA_AREA_ELLIPSE);
         LightInstanceBuf &area_buf = ELEM(la.area_shape, LA_AREA_SQUARE, LA_AREA_RECT) ?
                                          call_buffers_.area_square_buf :
@@ -198,6 +212,7 @@ class Lights : Overlay {
       call_buffers_.spot_buf.end_sync(sub_pass, res.shapes.light_spot_lines.get());
       call_buffers_.area_disk_buf.end_sync(sub_pass, res.shapes.light_area_disk_lines.get());
       call_buffers_.area_square_buf.end_sync(sub_pass, res.shapes.light_area_square_lines.get());
+      call_buffers_.area_cylinder_buf.end_sync(sub_pass, res.shapes.empty_cylinder.get());
     }
     {
       PassSimple::Sub &sub_pass = ps_.sub("ground_line");

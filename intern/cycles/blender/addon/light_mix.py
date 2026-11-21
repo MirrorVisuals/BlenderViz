@@ -195,6 +195,11 @@ def is_instanced(obj):
     return bool(data is not None and getattr(data, "users", 1) > 1)
 
 
+def is_mesh_light(obj):
+    """A BlenderViz Mesh Light: a light like the light objects, not an emissive material."""
+    return bool(getattr(getattr(obj, "cycles", None), "is_mesh_light", False))
+
+
 def collect_emitters(scene, settings):
     """``{object name: object}`` for everything that gets a light group."""
     found = {}
@@ -202,7 +207,7 @@ def collect_emitters(scene, settings):
     def consider(obj):
         if obj.name in found:
             return
-        if obj.type == 'LIGHT':
+        if obj.type == 'LIGHT' or is_mesh_light(obj):
             found[obj.name] = obj
         elif settings.include_emissive and emissive_materials(obj):
             found[obj.name] = obj
@@ -219,7 +224,7 @@ def collect_emitters(scene, settings):
 
 def group_key(obj, settings):
     """The light group name an object belongs to."""
-    if obj.type != 'LIGHT':
+    if obj.type != 'LIGHT' and not is_mesh_light(obj):
         if settings.emissive_mode == 'SINGLE':
             return sanitize(settings.prefix + (settings.emissive_group_name or "Emissive"))
         if settings.emissive_mode == 'MATERIAL':
@@ -275,7 +280,7 @@ def _member_info(scene):
         name = obj.lightgroup
         if not name:
             continue
-        kinds.setdefault(name, set()).add('LIGHT' if obj.type == 'LIGHT' else 'EMISSIVE')
+        kinds.setdefault(name, set()).add('LIGHT' if obj.type == 'LIGHT' or is_mesh_light(obj) else 'EMISSIVE')
         if is_instanced(obj):
             instanced.add(name)
     if scene.world is not None and scene.world.lightgroup:
@@ -681,6 +686,12 @@ class CYCLES_OT_light_mix_bake(CyclesLightMixOperator, Operator):
                     seen.add(('LIGHT', light.name))
                     light.energy *= gain
                     light.color = recolor(light.color, tint)
+                    touched += 1
+                elif is_mesh_light(obj):
+                    cob = obj.cycles
+                    cob.mesh_light_power *= gain
+                    cob.mesh_light_strength *= gain
+                    cob.mesh_light_color = recolor(cob.mesh_light_color, tint)
                     touched += 1
                 else:
                     for material in emissive_materials(obj):

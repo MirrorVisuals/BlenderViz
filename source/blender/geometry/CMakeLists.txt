@@ -22,6 +22,7 @@ set(SRC
   intern/extract_elements.cc
   intern/fillet_curves.cc
   intern/fit_curves.cc
+  intern/floor_generator.cc
   intern/foreach_geometry.cc
   intern/interpolate_curves.cc
   intern/join_geometries.cc
@@ -70,6 +71,7 @@ set(SRC
   GEO_extract_elements.hh
   GEO_fillet_curves.hh
   GEO_fit_curves.hh
+  GEO_floor_generator.hh
   GEO_foreach_geometry.hh
   GEO_interpolate_curves.hh
   GEO_join_geometries.hh

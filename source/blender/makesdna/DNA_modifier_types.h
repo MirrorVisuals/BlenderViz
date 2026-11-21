@@ -131,6 +131,7 @@ enum ModifierType : int {
   eModifierType_EditPoly = 200,
   eModifierType_UVWMap = 201,
   eModifierType_Unwrap = 202,
+  eModifierType_FloorGenerator = 203,
   NUM_MODIFIER_TYPES,
 };
 
@@ -2341,6 +2342,83 @@ struct UnwrapModifierData {
   /** #UnwrapModifierNewFaces. */
   int new_faces = 0;
   char uvmap_name[/*MAX_CUSTOMDATA_LAYER_NAME*/ 68] = "";
+  char _pad[4] = {};
+};
+
+/** Floor Generator modifier: boards or tiles in a pattern, as FloorGenerator for 3ds Max. */
+enum FloorGeneratorPattern {
+  MOD_FLOORGEN_STANDARD = 0,
+  MOD_FLOORGEN_STACKED = 1,
+  MOD_FLOORGEN_HERRINGBONE = 2,
+  MOD_FLOORGEN_CHEVRON = 3,
+  MOD_FLOORGEN_BASKET_WEAVE = 4,
+  MOD_FLOORGEN_HEXAGON = 5,
+  MOD_FLOORGEN_VERSAILLES = 6,
+};
+
+enum FloorGeneratorModifierFlag {
+  /** Board lengths vary from #FloorGeneratorModifierData.length_min (else all the maximum). */
+  MOD_FLOORGEN_VARY_LENGTH = (1 << 0),
+  MOD_FLOORGEN_VARY_WIDTH = (1 << 1),
+  /** The random offset across the boards uses the values of the offset along them. */
+  MOD_FLOORGEN_OFFSET_Y_LOCKED = (1 << 2),
+  /** The bevel width is the bevel height (a 45 degree bevel). */
+  MOD_FLOORGEN_BEVEL_45 = (1 << 3),
+  MOD_FLOORGEN_RANDOM_FLIP_U = (1 << 4),
+  MOD_FLOORGEN_RANDOM_FLIP_V = (1 << 5),
+  MOD_FLOORGEN_RANDOM_OFFSET_U = (1 << 6),
+  MOD_FLOORGEN_RANDOM_OFFSET_V = (1 << 7),
+};
+
+struct FloorGeneratorModifierData {
+  ModifierData modifier;
+  /** #FloorGeneratorPattern. */
+  int pattern = MOD_FLOORGEN_STANDARD;
+  /** #FloorGeneratorModifierFlag. */
+  int flag = MOD_FLOORGEN_OFFSET_Y_LOCKED | MOD_FLOORGEN_BEVEL_45;
+  float length = 1.2f;
+  float length_min = 0.6f;
+  float length_spread = 0.5f;
+  float width = 0.2f;
+  float width_min = 0.1f;
+  float width_spread = 0.5f;
+  float grout_length = 0.002f;
+  float grout_width = 0.002f;
+  /** Fraction of the board length. */
+  float row_offset = 0.33f;
+  float height = 0.01f;
+  float bevel_height = 0.001f;
+  float bevel_width = 0.001f;
+  int parallel_boards = 1;
+  /** Radians. */
+  float chevron_angle = 0.785398f;
+  int sub_boards = 3;
+  float hex_radius = 0.15f;
+  float panel_size = 1.0f;
+  /** Random variation per board (rotation and tilt in radians). */
+  float rotation_min = 0.0f;
+  float rotation_max = 0.0f;
+  float rotation_spread = 0.5f;
+  float offset_x_min = 0.0f;
+  float offset_x_max = 0.0f;
+  float offset_x_spread = 0.5f;
+  float offset_y_min = 0.0f;
+  float offset_y_max = 0.0f;
+  float offset_y_spread = 0.5f;
+  float tilt_min = 0.0f;
+  float tilt_max = 0.0f;
+  float tilt_spread = 0.5f;
+  float overlap = 0.0f;
+  /** Fraction of the boards left out. */
+  float missing = 0.0f;
+  /** The whole pattern. */
+  float pattern_scale = 1.0f;
+  float direction = 0.0f;
+  float pattern_offset[2] = {0.0f, 0.0f};
+  int seed = 0;
+  float weld = 0.001f;
+  int material_count = 1;
+  char uvmap_name[/*MAX_CUSTOMDATA_LAYER_NAME*/ 68] = "UVMap";
   char _pad[4] = {};
 };
 
