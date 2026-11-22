@@ -831,6 +831,11 @@ struct SVMNodeTexSkyCloudsData {
   float extinction_g;
   float extinction_b;
   uint seed;
+  /* Cloud map: fisheye image of the clouds (zenith in the middle, horizon at the edge), opacity
+   * in red, made from a photo. -1: procedural cirrus. */
+  int map_id;
+  /* Strength of the light and shade the clouds had in the photo. */
+  float map_shading;
 };
 static_assert(alignof(SVMNodeTexSkyCloudsData) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSkyCloudsData) % sizeof(uint) == 0);

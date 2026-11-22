@@ -74,6 +74,15 @@ static void node_shader_buts_tex_sky(ui::Layout &layout, bContext *C, PointerRNA
       if (BKE_scene_uses_blender_eevee(CTX_data_scene(C))) {
         layout.label(RPT_("Clouds are not available in EEVEE"), ICON_ERROR);
       }
+      layout.prop(ptr, "cloud_map", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      if (RNA_pointer_get(ptr, "cloud_map").data != nullptr) {
+        /* Clouds from a photo. */
+        ui::Layout &col = layout.column(true);
+        col.prop(ptr, "cloud_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        col.prop(ptr, "cloud_map_shading", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        col.prop(ptr, "cloud_direction", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        return;
+      }
       ui::Layout &col = layout.column(true);
       col.prop(ptr, "cloud_amount", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
       col.prop(ptr, "cloud_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
@@ -121,6 +130,7 @@ static void node_shader_init_tex_sky(bNodeTree * /*ntree*/, bNode *node)
   tex->cloud_turbulence = 0.3f;
   tex->cloud_dapple = 0.0f;
   tex->cloud_comb = DEG2RADF(35.0f);
+  tex->cloud_map_shading = 0.5f;
   node->storage = tex;
 }
 

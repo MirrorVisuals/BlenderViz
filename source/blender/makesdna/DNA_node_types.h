@@ -2640,6 +2640,10 @@ struct NodeTexSky {
   float cloud_comb = 0;
   /** Position of the clouds (m), to move them with the wind. */
   float cloud_offset[2] = {0.0f, 0.0f};
+  /** With a cloud map (the node's image, made from a photo): how much of the light and shade the
+   * clouds had in the photo they keep, 0..1. */
+  float cloud_map_shading = 0;
+  char _pad2[4] = {};
 };
 
 struct NodeTexImage {

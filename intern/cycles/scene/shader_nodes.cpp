@@ -966,6 +966,8 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
       .extinction_g = 0.0135f * rayleigh + mie,
       .extinction_b = 0.0331f * rayleigh + mie,
       .seed = uint(cloud_seed),
+      .map_id = cloud_handle.empty() ? -1 : cloud_handle.kernel_id(),
+      .map_shading = clamp(cloud_map_shading, 0.0f, 1.0f),
   };
 }
 
@@ -1059,6 +1061,7 @@ NODE_DEFINE(SkyTextureNode)
   SOCKET_FLOAT(cloud_offset_x, "Cloud Offset X", 0.0f);
   SOCKET_FLOAT(cloud_offset_y, "Cloud Offset Y", 0.0f);
   SOCKET_INT(cloud_seed, "Cloud Seed", 0);
+  SOCKET_FLOAT(cloud_map_shading, "Cloud Map Shading", 0.5f);
   SOCKET_IN_POINT(vector, "Vector", zero_float3(), SocketType::LINK_TEXTURE_GENERATED);
   SOCKET_OUT_COLOR(color, "Color");
 

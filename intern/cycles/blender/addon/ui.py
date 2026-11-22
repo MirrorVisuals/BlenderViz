@@ -1832,6 +1832,42 @@ def world_sky_node(world):
     return skies[0] if skies else None
 
 
+def context_world(context):
+    """The world of the Properties editor, or of the scene."""
+    world = getattr(context, "world", None)
+    if world is None and context.scene:
+        world = context.scene.world
+    return world
+
+
+def cloud_map_presets():
+    """The cloud maps that come with BlenderViz (and the user's own): (name, path), sorted."""
+    import os
+    maps = {}
+    for directory in bpy.utils.preset_paths(os.path.join("cycles", "cloud_maps")):
+        for filename in sorted(os.listdir(directory)):
+            if filename.lower().endswith((".png", ".exr", ".tif", ".tiff")):
+                name = bpy.path.display_name(os.path.splitext(filename)[0])
+                maps.setdefault(name, os.path.join(directory, filename))
+    return sorted(maps.items())
+
+
+def load_cloud_map(path):
+    """The image of a cloud map file (loaded once), as data (not color)."""
+    image = bpy.data.images.load(path, check_existing=True)
+    image.colorspace_settings.is_data = True
+    # Packed: the file then renders on another computer too.
+    if image.packed_file is None:
+        image.pack()
+    return image
+
+
+def _cloud_map_preset_items(_self, _context):
+    items = [(path, name, "") for name, path in cloud_map_presets()]
+    _cloud_map_preset_items.cache = items  # Python must keep the strings alive.
+    return items or [('NONE', "No cloud maps", "")]
+
+
 class CYCLES_OT_world_sky_clouds_add(Operator):
     """Make the world a physical sky with clouds (a Sky Texture into the Background)"""
     bl_idname = "cycles.world_sky_clouds_add"
@@ -1858,6 +1894,90 @@ class CYCLES_OT_world_sky_clouds_add(Operator):
         sky.location = background.location.x - 240, background.location.y
         tree.links.new(sky.outputs["Color"], background.inputs["Color"])
         sky.use_clouds = True
+        # Clouds from a photo, the first that comes with BlenderViz.
+        presets = cloud_map_presets()
+        if presets:
+            sky.cloud_map = load_cloud_map(presets[0][1])
+        return {'FINISHED'}
+
+
+class CYCLES_OT_world_cloud_map_preset(Operator):
+    """Clouds from a photo that comes with BlenderViz (or one of yours in presets/cycles/cloud_maps)"""
+    bl_idname = "cycles.world_cloud_map_preset"
+    bl_label = "Cloud Map"
+    bl_property = "preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset: bpy.props.EnumProperty(name="Cloud Map", items=_cloud_map_preset_items)
+
+    @classmethod
+    def poll(cls, context):
+        return world_sky_node(context_world(context)) is not None
+
+    def invoke(self, context, _event):
+        context.window_manager.invoke_search_popup(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        if self.preset == 'NONE':
+            return {'CANCELLED'}
+        sky = world_sky_node(context_world(context))
+        sky.cloud_map = load_cloud_map(self.preset)
+        sky.use_clouds = True
+        return {'FINISHED'}
+
+
+class CYCLES_OT_world_cloud_map_from_hdri(Operator):
+    """Make a cloud map from an HDRI with clouds: its clouds, lit by this sky's sun. The cloud """ \
+        """map is packed into the file"""
+    bl_idname = "cycles.world_cloud_map_from_hdri"
+    bl_label = "Cloud Map from HDRI"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(default="*.hdr;*.exr", options={'HIDDEN'})
+    size: bpy.props.EnumProperty(
+        name="Resolution",
+        items=(('2048', "2048", "Enough for wide views"),
+               ('3072', "3072", ""),
+               ('4096', "4096", "For close-ups of the sky (needs an 8K HDRI)")),
+        default='3072',
+    )
+    rotation: bpy.props.FloatProperty(
+        name="Rotation", subtype='ANGLE',
+        description="Turn the clouds of the HDRI around the zenith",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return world_sky_node(context_world(context)) is not None
+
+    def invoke(self, context, _event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        import os
+        from . import cloud_map
+
+        if not os.path.isfile(self.filepath):
+            self.report({'ERROR'}, "Choose an HDRI file")
+            return {'CANCELLED'}
+        existing = {image.name for image in bpy.data.images}
+        source = bpy.data.images.load(self.filepath, check_existing=True)
+        try:
+            if source.size[0] < 2 * source.size[1] - 2 or source.size[0] > 2 * source.size[1] + 2:
+                self.report({'ERROR'}, "Not an equirectangular HDRI (2:1)")
+                return {'CANCELLED'}
+            name = "Clouds " + os.path.splitext(os.path.basename(self.filepath))[0]
+            image = cloud_map.make_cloud_map(source, name=name, size=int(self.size),
+                                             rotation=self.rotation)
+        finally:
+            if source.name not in existing and source.users == 0:
+                bpy.data.images.remove(source)
+        sky = world_sky_node(context_world(context))
+        sky.cloud_map = image
+        sky.use_clouds = True
         return {'FINISHED'}
 
 
@@ -1882,22 +2002,34 @@ class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
             layout.operator("cycles.world_sky_clouds_add", icon='OUTLINER_DATA_VOLUME')
             return
 
+        layout.active = sky.use_clouds
+        row = layout.row(align=True)
+        row.operator("cycles.world_cloud_map_preset", text="Photo Clouds", icon='IMAGE_DATA')
+        row.operator("cycles.world_cloud_map_from_hdri", text="From HDRI", icon='WORLD')
+        layout.template_ID(sky, "cloud_map", open="image.open")
+
         layout.use_property_split = True
         layout.use_property_decorate = False
-        layout.active = sky.use_clouds
-        col = layout.column(align=True)
-        col.prop(sky, "cloud_amount", text="Amount")
-        col.prop(sky, "cloud_density", text="Density")
-        col.prop(sky, "cloud_dapple")
-        col = layout.column(align=True)
-        col.prop(sky, "cloud_direction", text="Wind Direction")
-        col.prop(sky, "cloud_comb", text="Fibre Angle")
-        col.prop(sky, "cloud_turbulence")
-        col = layout.column(align=True)
-        col.prop(sky, "cloud_scale", text="Scale")
-        col.prop(sky, "cloud_altitude", text="Altitude")
-        col.prop(sky, "cloud_offset", text="Offset")
-        col.prop(sky, "cloud_seed", text="Seed")
+        if sky.cloud_map:
+            # Clouds from a photo, lit by this sky's sun.
+            col = layout.column(align=True)
+            col.prop(sky, "cloud_density", text="Density")
+            col.prop(sky, "cloud_map_shading")
+            col.prop(sky, "cloud_direction", text="Rotation")
+        else:
+            col = layout.column(align=True)
+            col.prop(sky, "cloud_amount", text="Amount")
+            col.prop(sky, "cloud_density", text="Density")
+            col.prop(sky, "cloud_dapple")
+            col = layout.column(align=True)
+            col.prop(sky, "cloud_direction", text="Wind Direction")
+            col.prop(sky, "cloud_comb", text="Fibre Angle")
+            col.prop(sky, "cloud_turbulence")
+            col = layout.column(align=True)
+            col.prop(sky, "cloud_scale", text="Scale")
+            col.prop(sky, "cloud_altitude", text="Altitude")
+            col.prop(sky, "cloud_offset", text="Offset")
+            col.prop(sky, "cloud_seed", text="Seed")
         col = layout.column(align=True)
         col.prop(sky, "sun_elevation")
         col.prop(sky, "sun_rotation")
@@ -2844,6 +2976,8 @@ classes = (
     CYCLES_WORLD_PT_preview,
     CYCLES_WORLD_PT_surface,
     CYCLES_OT_world_sky_clouds_add,
+    CYCLES_OT_world_cloud_map_preset,
+    CYCLES_OT_world_cloud_map_from_hdri,
     CYCLES_WORLD_PT_clouds,
     CYCLES_WORLD_PT_volume,
     CYCLES_WORLD_PT_mist,

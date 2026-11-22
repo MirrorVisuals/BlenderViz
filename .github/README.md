@@ -281,7 +281,13 @@ sidebars, and in a Light Mix button of the Image Editor header.
 World Properties > Clouds (or the Sky Texture node, Single and Multiple Scattering): cirrus as
 part of the physical sky, with no objects or volumes, so it renders noise-free and at once.
 
-- **Cirrus** as a thin layer about 9 km up, curving with the Earth: the clouds crowd together
+- **Photo clouds:** real clouds, taken from a photo of the sky, lit by this sky's sun (the same
+  clouds at noon, golden hour or sunset). One comes with BlenderViz (Waterkloof Farm, from a CC0
+  Poly Haven HDRI); **From HDRI** makes a cloud map out of any HDRI with clouds (the clear sky is
+  told apart from the clouds by how much of its blue they hide), packed into the file.
+  **Density**, **Photo Shading** (how much of the photo's own light and shade they keep) and
+  **Rotation**. Cloud maps of your own go in `scripts/presets/cycles/cloud_maps`.
+- **Procedural cirrus** (no cloud map) as a thin layer about 9 km up, curving with the Earth: the clouds crowd together
   toward the horizon and fade into its haze, as in photos. Detail smaller than a pixel is left
   out, so the horizon doesn't shimmer.
 - **Shapes:** long torn bands along the wind with fibres combed through them, or with **Dapple**

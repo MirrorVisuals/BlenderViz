@@ -208,8 +208,17 @@ class SkyTextureNode : public TextureNode {
   NODE_SOCKET_API(float, cloud_offset_x)
   NODE_SOCKET_API(float, cloud_offset_y)
   NODE_SOCKET_API(int, cloud_seed)
+  NODE_SOCKET_API(float, cloud_map_shading)
   NODE_SOCKET_API(float3, vector)
   ImageHandle handle;
+  /* Cloud map made from a photo (set by the host application); empty: procedural cirrus. */
+  ImageHandle cloud_handle;
+
+  bool equals(const ShaderNode &other) override
+  {
+    const SkyTextureNode &other_node = static_cast<const SkyTextureNode &>(other);
+    return TextureNode::equals(other) && cloud_handle == other_node.cloud_handle;
+  }
 
   void simplify_settings(Scene *scene) override;
 

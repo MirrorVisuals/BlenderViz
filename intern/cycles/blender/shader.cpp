@@ -1128,6 +1128,37 @@ static ShaderNode *add_node(Scene *scene,
     sky->set_cloud_offset_x(storage.cloud_offset[0]);
     sky->set_cloud_offset_y(storage.cloud_offset[1]);
     sky->set_cloud_seed(storage.cloud_seed);
+    sky->set_cloud_map_shading(storage.cloud_map_shading);
+    /* BlenderViz: cloud map, made from a photo (the node's image). */
+    blender::Image *b_cloud_image = blender::id_cast<blender::Image *>(b_node.id);
+    if (b_cloud_image && storage.use_clouds) {
+      ImageParams params;
+      params.interpolation = INTERPOLATION_CUBIC;
+      params.extension = EXTENSION_EXTEND;
+      params.alpha_type = IMAGE_ALPHA_IGNORE;
+      params.colorspace = u_colorspace_data;
+      if (image_is_builtin(*b_cloud_image, b_engine)) {
+        blender::ImageUser b_cloud_user = {};
+        b_cloud_user.framenr = 1;
+        b_cloud_user.frames = 1;
+        b_cloud_user.sfra = 1;
+        sky->cloud_handle = scene->image_manager->add_image(
+            make_unique<BlenderImageLoader>(b_cloud_image,
+                                            &b_cloud_user,
+                                            1,
+                                            0,
+                                            (b_engine.flag & blender::RE_ENGINE_PREVIEW) != 0),
+            params);
+      }
+      else {
+        blender::ImageUser b_cloud_user = {};
+        b_cloud_user.framenr = 1;
+        b_cloud_user.frames = 1;
+        b_cloud_user.sfra = 1;
+        sky->cloud_handle = scene->image_manager->add_image(
+            image_user_file_path(b_data, b_cloud_user, *b_cloud_image, b_scene.r.cfra), params);
+      }
+    }
     const blender::TexMapping &b_texture_mapping = storage.base.tex_mapping;
     get_tex_mapping(sky, &b_texture_mapping);
     node = sky;

@@ -49,6 +49,9 @@ world = scene.world
 sky = next(n for n in world.node_tree.nodes if n.bl_idname == "ShaderNodeTexSky")
 check(sky.use_clouds and sky.sky_type == 'MULTIPLE_SCATTERING', "a sky with clouds, in the world")
 check(abs(sky.cloud_altitude - 9000.0) < 1e-3 and abs(sky.cloud_amount - 0.45) < 1e-6, "cirrus defaults")
+check(sky.cloud_map is not None, "with clouds from a photo, that come with BlenderViz")
+check(sky.cloud_map is not None and sky.cloud_map.packed_file is not None,
+      "the cloud map is packed into the file")
 sky.sun_elevation = math.radians(40.0)
 sky.sun_rotation = math.radians(180.0)
 
@@ -75,7 +78,77 @@ def rows(px, y0, y1, width=160):
     return [c for y in range(y0, y1) for c in px[y * width * 4:(y + 1) * width * 4]]
 
 
+print("Photo clouds")
 look(55)
+sky.use_clouds = False
+clear = render("clear")
+sky.use_clouds = True
+photo = render("photo")
+check(difference(photo, clear) > 0.01, "photo clouds change the sky ({:.3f})".format(difference(photo, clear)))
+check(mean(photo, 0) / mean(photo, 2) > mean(clear, 0) / mean(clear, 2), "and make it whiter")
+sky.cloud_direction += math.radians(90.0)
+check(difference(render("photo_turned"), photo) > 0.005, "Rotation turns them")
+sky.cloud_direction -= math.radians(90.0)
+sky.cloud_map_shading = 0.0
+check(difference(render("photo_flat"), photo) > 1e-4, "Photo Shading changes them")
+sky.cloud_map_shading = 0.5
+sky.cloud_density = 0.0
+check(difference(render("photo_none"), clear) < 1e-6, "Density 0: exactly the clear sky")
+sky.cloud_density = 1.0
+
+print("Cloud map from HDRI")
+# An equirectangular HDRI: blue sky, a white cloud 60 degrees up toward +X, a sun toward -Y.
+w, h = 256, 128
+pixels = []
+for y in range(h):
+    elevation = (y + 0.5) / h * math.pi - math.pi / 2
+    for x in range(w):
+        azimuth = (0.5 - (x + 0.5) / w) * 2 * math.pi
+        dx = math.cos(elevation) * math.cos(azimuth)
+        dy = math.cos(elevation) * math.sin(azimuth)
+        dz = math.sin(elevation)
+        if dz < 0:
+            pixels += (0.1, 0.08, 0.05, 1.0)
+            continue
+        r, g, b = 0.15, 0.3, 0.8
+        cloud = math.exp(-((dx - 0.5) ** 2 + dy ** 2 + (dz - 0.866) ** 2) / 0.02)
+        r, g, b = (r * (1 - cloud) + 1.2 * cloud, g * (1 - cloud) + 1.2 * cloud,
+                   b * (1 - cloud) + 1.2 * cloud)
+        sun = 1000.0 if dy < -0.97 and abs(dz - 0.2) < 0.03 else 0.0
+        pixels += (r + sun, g + sun, b + sun, 1.0)
+hdri = bpy.data.images.new("test_hdri", w, h, float_buffer=True)
+hdri.pixels.foreach_set(pixels)
+hdri_path = os.path.join(bpy.app.tempdir, "test_hdri.exr")
+hdri.filepath_raw = hdri_path
+hdri.file_format = 'OPEN_EXR'
+hdri.save()
+bpy.data.images.remove(hdri)
+old_map = sky.cloud_map
+check(bpy.ops.cycles.world_cloud_map_from_hdri.poll(), "Cloud Map from HDRI is available")
+bpy.ops.cycles.world_cloud_map_from_hdri('EXEC_DEFAULT', filepath=hdri_path, size='2048')
+made = sky.cloud_map
+check(made is not None and made is not old_map and made.packed_file is not None,
+      "it makes a cloud map, packed")
+if made is not None and made is not old_map:
+    size = made.size[0]
+    px = made.pixels[:]
+
+    def opacity_at(dx, dy, dz):
+        r = math.acos(dz) / (math.pi / 2)
+        rho = math.hypot(dx, dy)
+        u = 0.5 + 0.5 * r * dx / rho
+        v = 0.5 + 0.5 * r * dy / rho
+        i = (int(v * size) * size + int(u * size)) * 4
+        return px[i]
+    at_cloud = opacity_at(0.5, 0.0, 0.866)
+    at_clear = opacity_at(-0.5, 0.3, 0.81)
+    check(at_cloud > 0.5 and at_clear < 0.1,
+          "the cloud is opaque in it, the clear sky not ({:.2f}, {:.2f})".format(at_cloud, at_clear))
+    check(not any(img.filepath == hdri_path for img in bpy.data.images), "the HDRI isn't kept")
+sky.cloud_map = old_map
+
+print("Procedural cirrus")
+sky.cloud_map = None
 sky.use_clouds = False
 clear = render("clear")
 sky.use_clouds = True

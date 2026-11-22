@@ -4134,6 +4134,7 @@ static void rna_ShaderNodeTexSky_clouds_update(Main *bmain, Scene *scene, Pointe
     sky->cloud_turbulence = 0.3f;
     sky->cloud_dapple = 0.0f;
     sky->cloud_comb = DEG2RADF(35.0f);
+    sky->cloud_map_shading = 0.5f;
   }
   rna_Node_update(bmain, scene, ptr);
 }
@@ -5358,6 +5359,21 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
 
   PropertyRNA *prop;
 
+  /* BlenderViz: cloud map, made from a photo of the sky. */
+  prop = RNA_def_property(srna, "cloud_map", PROP_POINTER, PROP_NONE);
+  RNA_def_property_pointer_sdna(prop, nullptr, "id");
+  RNA_def_property_struct_type(prop, "Image");
+  RNA_def_property_flag(prop, PROP_EDITABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_ui_text(
+      prop,
+      "Cloud Map",
+      "Clouds from a photo: a fisheye image of the sky with the cloud opacity in red (made with "
+      "Cloud Map from HDRI). The sun of this sky lights them. Empty: procedural cirrus");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_tex_image_update");
+  RNA_def_property_pointer_funcs(
+      prop, nullptr, nullptr, nullptr, "rna_Image_no_renderresult_or_viewer_poll");
+
   RNA_def_struct_sdna_from(srna, "NodeTexSky", "storage");
   def_sh_tex(brna, srna);
 
@@ -5502,6 +5518,14 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
   prop = RNA_def_property(srna, "cloud_seed", PROP_INT, PROP_NONE);
   RNA_def_property_range(prop, 0, INT_MAX);
   RNA_def_property_ui_text(prop, "Cloud Seed", "Another sky with the same settings");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_map_shading", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_text(prop,
+                           "Photo Shading",
+                           "How much of the light and shade the clouds had in the photo they keep "
+                           "(the rest comes from this sky's sun)");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
   /* Legacy parameters. */

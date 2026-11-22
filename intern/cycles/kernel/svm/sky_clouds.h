@@ -18,6 +18,7 @@
 #pragma once
 
 #include "kernel/globals.h"
+#include "kernel/image.h"
 #include "kernel/types.h"
 
 #include "kernel/svm/node_types.h"
@@ -228,10 +229,98 @@ ccl_device_inline float cirrus_phase_hg(const float cos_t, const float g)
   return (1.0f - g2) / (4.0f * M_PI_F * d * sqrtf(d));
 }
 
+/* Light the cloud of opacity `alpha` (optical depth `tau`) seen in `dir`, and put it in front of
+ * the sky. `relief` brightens the sides facing the sun and shades the others. */
+ccl_device float3 cirrus_light(KernelGlobals kg,
+                               const ccl_global SVMNodeTexSkyCloudsData &c,
+                               const float3 dir,
+                               const float3 sun_dir,
+                               const float3 sky_rgb,
+                               const float3 zenith_xyz,
+                               const float alpha,
+                               const float tau,
+                               const float relief)
+{
+  /* Ice crystals scatter strongly forward (bright toward the sun), some backward, and multiple
+   * scattering adds a little light in every direction. */
+  const float cos_t = dot(dir, sun_dir);
+  const float phase = 0.75f * cirrus_phase_hg(cos_t, 0.75f) +
+                      0.25f * cirrus_phase_hg(cos_t, -0.2f);
+  const float3 sun_xyz = make_float3(c.sun_x, c.sun_y, c.sun_z);
+  float3 cloud_xyz = sun_xyz * (phase * 0.9f + 0.08f) + zenith_xyz * 0.8f;
+  /* Thicker parts get a little grey. */
+  cloud_xyz *= (1.0f - 0.35f * (1.0f - expf(-1.5f * tau))) * relief;
+  const float3 cloud_rgb = xyz_to_rgb_clamped(kg, cloud_xyz);
+
+  /* Air in front of the cloud dims and reddens it toward the horizon (relative air mass). */
+  const float elevation_deg = asinf(dir.z) * (180.0f / M_PI_F);
+  const float airmass = 1.0f / (dir.z + 0.15f * powf(elevation_deg + 3.885f, -1.253f));
+  const float3 t_air = make_float3(expf(-c.extinction_r * airmass),
+                                   expf(-c.extinction_g * airmass),
+                                   expf(-c.extinction_b * airmass));
+
+  /* The sky in front of the cloud stays, the sky behind it is dimmed by it. */
+  return sky_rgb * (c.below + (1.0f - c.below) * (1.0f - alpha)) + cloud_rgb * alpha * t_air;
+}
+
+/* Where `dir` falls in the cloud map: a fisheye image of the sky, the zenith in the middle and the
+ * horizon at the edge, angle from the zenith proportional to the distance from the middle. Up in
+ * the image is +Y (north) and right +X, turned by the wind direction. */
+ccl_device_inline float2 cirrus_map_uv(const ccl_global SVMNodeTexSkyCloudsData &c,
+                                       const float3 dir)
+{
+  const float ca = cosf(c.direction);
+  const float sa = sinf(c.direction);
+  const float x = dir.x * ca + dir.y * sa;
+  const float y = -dir.x * sa + dir.y * ca;
+  const float rho = sqrtf(x * x + y * y);
+  const float r = acosf(clamp(dir.z, -1.0f, 1.0f)) * (2.0f / M_PI_F);
+  const float k = (rho > 1e-6f) ? 0.5f * r / rho : 0.0f;
+  return make_float2(0.5f + x * k, 0.5f + y * k);
+}
+
+/* Clouds from a cloud map, made from a photo of real clouds: their shapes (with the perspective of
+ * the photo), lit by this sky's sun. */
+ccl_device float3 sky_cirrus_map(KernelGlobals kg,
+                                 ccl_private ShaderData *sd,
+                                 const uint32_t /*path_flag*/,
+                                 const ccl_global SVMNodeTexSkyCloudsData &c,
+                                 const float3 dir,
+                                 const float3 sun_dir,
+                                 const float3 sky_rgb,
+                                 const float3 zenith_xyz)
+{
+  const float4 m = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir)));
+  /* Photos are unreliable right at the horizon (haze, land): fade out there. */
+  const float a = saturatef(m.x) * cirrus_smoothstep(0.0f, 0.04f, dir.z);
+  if (a <= 0.0f) {
+    return sky_rgb;
+  }
+  /* Density scales the optical depth: thinner or thicker clouds of the same shapes. */
+  const float tau = -logf(fmaxf(1.0f - a, 1e-4f)) * c.density;
+  const float alpha = 1.0f - expf(-tau);
+
+  /* Relief: the cloud a third of a degree toward the sun. */
+  float relief = 1.0f;
+  const float3 toward = sun_dir - dir * dot(dir, sun_dir);
+  const float toward_len = len(toward);
+  if (toward_len > 1e-4f) {
+    const float3 dir_sun = normalize(dir + toward * (0.006f / toward_len));
+    const float a_sun = saturatef(
+        kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir_sun))).x);
+    relief = clamp(1.0f + 2.0f * (a - a_sun), 0.6f, 1.3f);
+  }
+  /* The light and shade in the photo (green, 0.5 neutral): the inner texture of the cloud. */
+  if (c.map_shading > 0.0f) {
+    relief *= clamp(1.0f + c.map_shading * (2.0f * m.y - 1.0f), 0.3f, 2.0f);
+  }
+  return cirrus_light(kg, c, dir, sun_dir, sky_rgb, zenith_xyz, alpha, tau, relief);
+}
+
 /* Add the cirrus layer to the sky. `sky_rgb` is the sky (and sun) seen in `dir`; `zenith_xyz`
  * the sky straight up (in XYZ, as the sun), for the light the clouds get from the sky above. */
 ccl_device float3 sky_cirrus(KernelGlobals kg,
-                             const ccl_private ShaderData *sd,
+                             ccl_private ShaderData *sd,
                              const uint32_t path_flag,
                              const ccl_global SVMNodeTexSkyCloudsData &c,
                              const float3 dir,
@@ -241,6 +330,10 @@ ccl_device float3 sky_cirrus(KernelGlobals kg,
 {
   if (dir.z <= 1e-4f || c.density <= 0.0f || c.altitude <= 0.0f) {
     return sky_rgb;
+  }
+
+  if (c.map_id >= 0) {
+    return sky_cirrus_map(kg, sd, path_flag, c, dir, sun_dir, sky_rgb, zenith_xyz);
   }
 
   /* Where the view ray meets the layer: a sphere around the Earth, `altitude` above the eye. */
@@ -283,26 +376,7 @@ ccl_device float3 sky_cirrus(KernelGlobals kg,
     }
   }
 
-  /* Ice crystals scatter strongly forward (bright toward the sun), some backward, and multiple
-   * scattering adds a little light in every direction. */
-  const float cos_t = dot(dir, sun_dir);
-  const float phase = 0.75f * cirrus_phase_hg(cos_t, 0.75f) +
-                      0.25f * cirrus_phase_hg(cos_t, -0.2f);
-  const float3 sun_xyz = make_float3(c.sun_x, c.sun_y, c.sun_z);
-  float3 cloud_xyz = sun_xyz * (phase * 0.9f + 0.08f) + zenith_xyz * 0.8f;
-  /* Thicker parts get a little grey. */
-  cloud_xyz *= (1.0f - 0.35f * (1.0f - expf(-1.5f * tau))) * relief;
-  const float3 cloud_rgb = xyz_to_rgb_clamped(kg, cloud_xyz);
-
-  /* Air in front of the cloud dims and reddens it toward the horizon (relative air mass). */
-  const float elevation_deg = asinf(dir.z) * (180.0f / M_PI_F);
-  const float airmass = 1.0f / (dir.z + 0.15f * powf(elevation_deg + 3.885f, -1.253f));
-  const float3 t_air = make_float3(expf(-c.extinction_r * airmass),
-                                   expf(-c.extinction_g * airmass),
-                                   expf(-c.extinction_b * airmass));
-
-  /* The sky in front of the cloud stays, the sky behind it is dimmed by it. */
-  return sky_rgb * (c.below + (1.0f - c.below) * (1.0f - alpha)) + cloud_rgb * alpha * t_air;
+  return cirrus_light(kg, c, dir, sun_dir, sky_rgb, zenith_xyz, alpha, tau, relief);
 }
 
 CCL_NAMESPACE_END

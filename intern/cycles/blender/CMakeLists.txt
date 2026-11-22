@@ -84,6 +84,7 @@ set(LIB
 set(ADDON_FILES
   addon/__init__.py
   addon/camera.py
+  addon/cloud_map.py
   addon/engine.py
   addon/light_mix.py
   addon/maketx.py
