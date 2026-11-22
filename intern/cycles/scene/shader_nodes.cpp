@@ -484,6 +484,72 @@ void ImageTextureNode::compile(SVMCompiler &compiler)
   tex_mapping.compile_end(compiler, vector_in, vector_offset);
 }
 
+/* BlenderViz: with a Texture Randomizer before it that blends the UV tiles, sample the image
+ * once per tile around the point (four Texture Randomizers, one per tile) and add them up with
+ * their weights. */
+void ImageTextureNode::expand(ShaderGraph *graph)
+{
+  ShaderInput *vector_in = input("Vector");
+  ShaderOutput *link = vector_in->link;
+  if (link == nullptr || link->parent->type != TextureRandomizerNode::get_node_type() ||
+      link->name() != "Vector")
+  {
+    return;
+  }
+  TextureRandomizerNode *randomizer = static_cast<TextureRandomizerNode *>(link->parent);
+  if (randomizer->get_blend_corner() >= 0 || !randomizer->uses_tile_blend()) {
+    return;
+  }
+  ShaderOutput *color_out = output("Color");
+  ShaderOutput *alpha_out = output("Alpha");
+  if (color_out->links.empty() && alpha_out->links.empty()) {
+    return;
+  }
+
+  ShaderOutput *color_sum = nullptr;
+  ShaderOutput *alpha_sum = nullptr;
+  for (int corner = 0; corner < 4; corner++) {
+    TextureRandomizerNode *tile_randomizer = static_cast<TextureRandomizerNode *>(
+        randomizer->clone(graph));
+    tile_randomizer->set_blend_corner(corner);
+    for (size_t i = 0; i < randomizer->inputs.size(); i++) {
+      if (ShaderOutput *from = randomizer->inputs[i]->link) {
+        graph->connect(from, tile_randomizer->inputs[i]);
+      }
+    }
+    ImageTextureNode *image = static_cast<ImageTextureNode *>(clone(graph));
+    graph->connect(tile_randomizer->output("Vector"), image->input("Vector"));
+
+    VectorMathNode *color = graph->create_node<VectorMathNode>();
+    color->set_math_type(NODE_VECTOR_MATH_SCALE);
+    graph->connect(image->output("Color"), color->input("Vector1"));
+    graph->connect(tile_randomizer->output("Weight"), color->input("Scale"));
+    MathNode *alpha = graph->create_node<MathNode>();
+    alpha->set_math_type(NODE_MATH_MULTIPLY);
+    graph->connect(image->output("Alpha"), alpha->input("Value1"));
+    graph->connect(tile_randomizer->output("Weight"), alpha->input("Value2"));
+
+    if (color_sum == nullptr) {
+      color_sum = color->output("Vector");
+      alpha_sum = alpha->output("Value");
+      continue;
+    }
+    VectorMathNode *color_add = graph->create_node<VectorMathNode>();
+    color_add->set_math_type(NODE_VECTOR_MATH_ADD);
+    graph->connect(color_sum, color_add->input("Vector1"));
+    graph->connect(color->output("Vector"), color_add->input("Vector2"));
+    color_sum = color_add->output("Vector");
+    MathNode *alpha_add = graph->create_node<MathNode>();
+    alpha_add->set_math_type(NODE_MATH_ADD);
+    graph->connect(alpha_sum, alpha_add->input("Value1"));
+    graph->connect(alpha->output("Value"), alpha_add->input("Value2"));
+    alpha_sum = alpha_add->output("Value");
+  }
+
+  graph->relink(color_out, color_sum);
+  graph->relink(alpha_out, alpha_sum);
+}
+
 void ImageTextureNode::compile(OSLCompiler &compiler)
 {
 
@@ -7892,6 +7958,138 @@ void RadialTilingNode::compile(OSLCompiler &compiler)
 {
   compiler.parameter(this, "use_normalize");
   compiler.add(this, "node_radial_tiling");
+}
+
+/* Texture Randomizer (BlenderViz) */
+
+NODE_DEFINE(TextureRandomizerNode)
+{
+  NodeType *type = NodeType::add("texture_randomizer", create, NodeType::SHADER);
+
+  SOCKET_INT(modes, "Modes", NODE_TEX_RANDOMIZER_ELEMENT);
+  SOCKET_INT(options, "Options", 0);
+  SOCKET_INT(blend_corner, "Blend Corner", -1);
+
+  SOCKET_IN_POINT(vector, "Vector", zero_float3(), SocketType::LINK_TEXTURE_UV);
+  SOCKET_IN_FLOAT(seed, "Seed", 0.0f);
+  SOCKET_IN_FLOAT(tile_blend, "Tile Blend", 0.05f);
+  SOCKET_IN_FLOAT(u_offset_from, "U Offset From", 0.0f);
+  SOCKET_IN_FLOAT(u_offset_to, "U Offset To", 1.0f);
+  SOCKET_IN_FLOAT(u_offset_steps, "U Offset Steps", 0.0f);
+  SOCKET_IN_FLOAT(v_offset_from, "V Offset From", 0.0f);
+  SOCKET_IN_FLOAT(v_offset_to, "V Offset To", 1.0f);
+  SOCKET_IN_FLOAT(v_offset_steps, "V Offset Steps", 0.0f);
+  SOCKET_IN_FLOAT(rotation_from, "Rotation From", 0.0f);
+  SOCKET_IN_FLOAT(rotation_to, "Rotation To", M_2PI_F);
+  SOCKET_IN_FLOAT(rotation_steps, "Rotation Steps", 0.0f);
+  SOCKET_IN_FLOAT(u_scale_from, "U Scale From", 100.0f);
+  SOCKET_IN_FLOAT(u_scale_to, "U Scale To", 100.0f);
+  SOCKET_IN_FLOAT(u_scale_steps, "U Scale Steps", 0.0f);
+  SOCKET_IN_FLOAT(v_scale_from, "V Scale From", 100.0f);
+  SOCKET_IN_FLOAT(v_scale_to, "V Scale To", 100.0f);
+  SOCKET_IN_FLOAT(v_scale_steps, "V Scale Steps", 0.0f);
+  /* Connected by #TextureRandomizerNode::expand, not in Blender. */
+  SOCKET_IN_FLOAT(object_random, "Object Random", 0.0f);
+  SOCKET_IN_FLOAT(object_index, "Object Index", 0.0f);
+  SOCKET_IN_FLOAT(element_random, "Element Random", 0.0f);
+  SOCKET_IN_FLOAT(face_index, "Face Index", 0.0f);
+  SOCKET_IN_FLOAT(particle_index, "Particle Index", 0.0f);
+
+  SOCKET_OUT_POINT(vector, "Vector");
+  SOCKET_OUT_FLOAT(random, "Random");
+  SOCKET_OUT_FLOAT(weight, "Weight");
+
+  return type;
+}
+
+TextureRandomizerNode::TextureRandomizerNode() : ShaderNode(get_node_type()) {}
+
+bool TextureRandomizerNode::uses_tile_blend()
+{
+  return (modes & NODE_TEX_RANDOMIZER_STOCHASTIC) &&
+         (input("Tile Blend")->link != nullptr || tile_blend > 0.0f);
+}
+
+/* Connect what the randomness depends on. */
+void TextureRandomizerNode::expand(ShaderGraph *graph)
+{
+  ObjectInfoNode *object_info = nullptr;
+  auto object_info_output = [&](const char *name) {
+    if (object_info == nullptr) {
+      object_info = graph->create_node<ObjectInfoNode>();
+    }
+    return object_info->output(name);
+  };
+
+  ShaderInput *in = input("Object Random");
+  if ((modes & NODE_TEX_RANDOMIZER_OBJECT) && !in->link) {
+    graph->connect(object_info_output("Random"), in);
+  }
+  in = input("Object Index");
+  if ((modes & NODE_TEX_RANDOMIZER_OBJECT_INDEX) && !in->link) {
+    graph->connect(object_info_output("Object Index"), in);
+  }
+  in = input("Element Random");
+  if ((modes & NODE_TEX_RANDOMIZER_ELEMENT) && !in->link) {
+    GeometryNode *geometry = graph->create_node<GeometryNode>();
+    graph->connect(geometry->output("Random Per Island"), in);
+  }
+  in = input("Face Index");
+  if ((modes & NODE_TEX_RANDOMIZER_FACE) && !in->link) {
+    AttributeNode *attribute = graph->create_node<AttributeNode>();
+    attribute->set_attribute(ustring("material_index"));
+    graph->connect(attribute->output("Fac"), in);
+  }
+  in = input("Particle Index");
+  if ((modes & NODE_TEX_RANDOMIZER_PARTICLE) && !in->link) {
+    ParticleInfoNode *particle_info = graph->create_node<ParticleInfoNode>();
+    graph->connect(particle_info->output("Index"), in);
+  }
+}
+
+void TextureRandomizerNode::compile(SVMCompiler &compiler)
+{
+  compiler.add_node(this,
+                    NODE_TEX_RANDOMIZER,
+                    SVMNodeTexRandomizer{
+                        .vector = compiler.input_float3("Vector"),
+                        .seed = compiler.input_float("Seed"),
+                        .tile_blend = compiler.input_float("Tile Blend"),
+                        .u_offset_from = compiler.input_float("U Offset From"),
+                        .u_offset_to = compiler.input_float("U Offset To"),
+                        .u_offset_steps = compiler.input_float("U Offset Steps"),
+                        .v_offset_from = compiler.input_float("V Offset From"),
+                        .v_offset_to = compiler.input_float("V Offset To"),
+                        .v_offset_steps = compiler.input_float("V Offset Steps"),
+                        .rotation_from = compiler.input_float("Rotation From"),
+                        .rotation_to = compiler.input_float("Rotation To"),
+                        .rotation_steps = compiler.input_float("Rotation Steps"),
+                        .u_scale_from = compiler.input_float("U Scale From"),
+                        .u_scale_to = compiler.input_float("U Scale To"),
+                        .u_scale_steps = compiler.input_float("U Scale Steps"),
+                        .v_scale_from = compiler.input_float("V Scale From"),
+                        .v_scale_to = compiler.input_float("V Scale To"),
+                        .v_scale_steps = compiler.input_float("V Scale Steps"),
+                        .object_random = compiler.input_float("Object Random"),
+                        .object_index = compiler.input_float("Object Index"),
+                        .element_random = compiler.input_float("Element Random"),
+                        .face_index = compiler.input_float("Face Index"),
+                        .particle_index = compiler.input_float("Particle Index"),
+                        .modes = uint8_t(modes & NODE_TEX_RANDOMIZER_ALL),
+                        .options = uint8_t(options),
+                        .blend_corner = int8_t(blend_corner),
+                        .vector_offset = compiler.output("Vector"),
+                        .random_offset = compiler.output("Random"),
+                        .weight_offset = compiler.output("Weight"),
+                    });
+}
+
+void TextureRandomizerNode::compile(OSLCompiler &compiler)
+{
+  compiler.parameter(this, "modes");
+  compiler.parameter(this, "options");
+  compiler.parameter(this, "blend_corner");
+  compiler.add(this, "node_texture_randomizer");
 }
 
 /* Tangent */

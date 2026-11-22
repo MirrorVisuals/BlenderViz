@@ -1,0 +1,137 @@
+/* SPDX-FileCopyrightText: 2026 Blender Authors
+ *
+ * SPDX-License-Identifier: Apache-2.0 */
+
+#include "stdcycles.h"
+
+/* BlenderViz: Texture Randomizer (see kernel/svm/tex_randomizer.h). The same settings as the SVM
+ * version; the random values themselves differ. */
+
+float tex_randomizer_value(float from, float to, float steps, float r, int wrap)
+{
+  int n = int(steps);
+  if (n <= 0) {
+    return from + (to - from) * r;
+  }
+  if (n == 1) {
+    return from;
+  }
+  int i = min(int(r * float(n)), n - 1);
+  float divisions = wrap ? float(n) : float(n - 1);
+  return from + (to - from) * float(i) / divisions;
+}
+
+float tex_randomizer_edge_weight(float f, float blend)
+{
+  if (blend <= 0.0) {
+    return 0.0;
+  }
+  float distance = min(f, 1.0 - f);
+  float s = clamp(1.0 - distance / blend, 0.0, 1.0);
+  return 0.5 * s * s * (3.0 - 2.0 * s);
+}
+
+shader node_texture_randomizer(int modes = 4,
+                               int options = 0,
+                               int blend_corner = -1,
+                               point VectorIn = point(0.0, 0.0, 0.0),
+                               float Seed = 0.0,
+                               float TileBlend = 0.05,
+                               float UOffsetFrom = 0.0,
+                               float UOffsetTo = 1.0,
+                               float UOffsetSteps = 0.0,
+                               float VOffsetFrom = 0.0,
+                               float VOffsetTo = 1.0,
+                               float VOffsetSteps = 0.0,
+                               float RotationFrom = 0.0,
+                               float RotationTo = 0.0,
+                               float RotationSteps = 0.0,
+                               float UScaleFrom = 100.0,
+                               float UScaleTo = 100.0,
+                               float UScaleSteps = 0.0,
+                               float VScaleFrom = 100.0,
+                               float VScaleTo = 100.0,
+                               float VScaleSteps = 0.0,
+                               float ObjectRandom = 0.0,
+                               float ObjectIndex = 0.0,
+                               float ElementRandom = 0.0,
+                               float FaceIndex = 0.0,
+                               float ParticleIndex = 0.0,
+                               output point VectorOut = point(0.0, 0.0, 0.0),
+                               output float Random = 0.0,
+                               output float Weight = 1.0)
+{
+  float tile_x = floor(VectorIn[0]);
+  float tile_y = floor(VectorIn[1]);
+  Weight = 1.0;
+  if ((modes & 32) && blend_corner >= 0) {
+    float blend = 0.5 * clamp(TileBlend, 0.0, 1.0);
+    float fx = VectorIn[0] - tile_x;
+    float fy = VectorIn[1] - tile_y;
+    float wx = tex_randomizer_edge_weight(fx, blend);
+    float wy = tex_randomizer_edge_weight(fy, blend);
+    int shift_x = (blend_corner & 1) != 0;
+    int shift_y = (blend_corner & 2) != 0;
+    if (shift_x) {
+      tile_x += (fx < 0.5) ? -1.0 : 1.0;
+    }
+    if (shift_y) {
+      tile_y += (fy < 0.5) ? -1.0 : 1.0;
+    }
+    Weight = (shift_x ? wx : 1.0 - wx) * (shift_y ? wy : 1.0 - wy);
+  }
+
+  point key = point(floor(Seed), 0.0, 0.0);
+  if (modes & 1) {
+    key[1] += ObjectRandom * 7919.0;
+  }
+  if (modes & 2) {
+    key[1] += ObjectIndex * 104729.0;
+  }
+  if (modes & 4) {
+    key[2] += ElementRandom * 7919.0;
+  }
+  if (modes & 8) {
+    key[2] += floor(FaceIndex + 0.5) * 104729.0;
+  }
+  if (modes & 16) {
+    key[0] += ParticleIndex * 15485863.0;
+  }
+  if (modes & 32) {
+    key += point(tile_x * 0.618, tile_y * 1.414, tile_x * 2.718 + tile_y * 3.141);
+  }
+
+  VectorOut = VectorIn;
+  Random = 0.0;
+  if ((modes & 63) == 0) {
+    return;
+  }
+  Random = hashnoise(key, 0.0);
+  float u_offset = tex_randomizer_value(
+      UOffsetFrom, UOffsetTo, UOffsetSteps, hashnoise(key, 1.0), 0);
+  float v_offset = tex_randomizer_value(
+      VOffsetFrom, VOffsetTo, VOffsetSteps, hashnoise(key, 2.0), 0);
+  float rotation = tex_randomizer_value(RotationFrom,
+                                        RotationTo,
+                                        RotationSteps,
+                                        hashnoise(key, 3.0),
+                                        abs(RotationTo - RotationFrom) >= M_2PI - 1e-4);
+  float u_scale = tex_randomizer_value(UScaleFrom, UScaleTo, UScaleSteps, hashnoise(key, 4.0), 0);
+  float v_scale = (options & 4) ? tex_randomizer_value(
+                                      VScaleFrom, VScaleTo, VScaleSteps, hashnoise(key, 5.0), 0) :
+                                  u_scale;
+  float flip_u = ((options & 1) && hashnoise(key, 6.0) >= 0.5) ? -1.0 : 1.0;
+  float flip_v = ((options & 2) && hashnoise(key, 7.0) >= 0.5) ? -1.0 : 1.0;
+
+  float su = flip_u * 100.0 / (abs(u_scale) > 1e-6 ? u_scale : 1e-6);
+  float sv = flip_v * 100.0 / (abs(v_scale) > 1e-6 ? v_scale : 1e-6);
+  float c = cos(rotation);
+  float s = sin(rotation);
+  float pivot_x = (modes & 32) ? tile_x + 0.5 : 0.5;
+  float pivot_y = (modes & 32) ? tile_y + 0.5 : 0.5;
+  float x = VectorIn[0] - pivot_x;
+  float y = VectorIn[1] - pivot_y;
+  VectorOut = point(c * su * x + s * su * y + pivot_x + u_offset,
+                    -s * sv * x + c * sv * y + pivot_y + v_offset,
+                    VectorIn[2]);
+}

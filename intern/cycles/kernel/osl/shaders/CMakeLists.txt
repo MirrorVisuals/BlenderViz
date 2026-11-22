@@ -80,6 +80,7 @@ set(SRC_OSL
   node_rgb_ramp.osl
   node_radial_tiling.osl
   node_separate_color.osl
+  node_texture_randomizer.osl
   node_separate_xyz.osl
   node_set_normal.osl
   node_sheen_bsdf.osl

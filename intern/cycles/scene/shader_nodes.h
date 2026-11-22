@@ -124,6 +124,9 @@ class ImageTextureNode : public ImageSlotTextureNode {
 
   ShaderNodeType shader_node_type() const override;
 
+  /* BlenderViz: Tile Blend of a Texture Randomizer before it. */
+  void expand(ShaderGraph *graph) override;
+
   /* Parameters. */
   NODE_SOCKET_API(ustring, filename)
   NODE_SOCKET_API(ustring, colorspace)
@@ -1767,6 +1770,45 @@ class RadialTilingNode : public ShaderNode {
   NODE_SOCKET_API(float3, vector)
   NODE_SOCKET_API(float, r_gon_sides)
   NODE_SOCKET_API(float, r_gon_roundness)
+};
+
+/* BlenderViz: Texture Randomizer, as the V-Ray UVW Randomizer (see kernel/svm/tex_randomizer.h).
+ */
+class TextureRandomizerNode : public ShaderNode {
+ public:
+  SHADER_NODE_CLASS(TextureRandomizerNode)
+  void expand(ShaderGraph *graph) override;
+
+  /* Stochastic tiling with a Tile Blend: an Image Texture after it samples the neighbouring
+   * tiles too. */
+  bool uses_tile_blend();
+
+  NODE_SOCKET_API(int, modes)
+  NODE_SOCKET_API(int, options)
+  NODE_SOCKET_API(int, blend_corner)
+  NODE_SOCKET_API(float3, vector)
+  NODE_SOCKET_API(float, seed)
+  NODE_SOCKET_API(float, tile_blend)
+  NODE_SOCKET_API(float, u_offset_from)
+  NODE_SOCKET_API(float, u_offset_to)
+  NODE_SOCKET_API(float, u_offset_steps)
+  NODE_SOCKET_API(float, v_offset_from)
+  NODE_SOCKET_API(float, v_offset_to)
+  NODE_SOCKET_API(float, v_offset_steps)
+  NODE_SOCKET_API(float, rotation_from)
+  NODE_SOCKET_API(float, rotation_to)
+  NODE_SOCKET_API(float, rotation_steps)
+  NODE_SOCKET_API(float, u_scale_from)
+  NODE_SOCKET_API(float, u_scale_to)
+  NODE_SOCKET_API(float, u_scale_steps)
+  NODE_SOCKET_API(float, v_scale_from)
+  NODE_SOCKET_API(float, v_scale_to)
+  NODE_SOCKET_API(float, v_scale_steps)
+  NODE_SOCKET_API(float, object_random)
+  NODE_SOCKET_API(float, object_index)
+  NODE_SOCKET_API(float, element_random)
+  NODE_SOCKET_API(float, face_index)
+  NODE_SOCKET_API(float, particle_index)
 };
 
 class TangentNode : public ShaderNode {

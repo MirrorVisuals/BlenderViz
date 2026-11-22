@@ -275,6 +275,23 @@ sidebars, and in a Light Mix button of the Image Editor header.
 - **From the Light Mix add-on:** Import Light Mix Add-on Mix takes over its settings and
   removes its compositor nodes. Disable the add-on afterwards.
 
+### Cycles: Texture Randomizer, as the V-Ray UVW Randomizer
+
+A shader node (Add > Texture > Texture Randomizer) placed before a texture: it gives the
+texture coordinates a random offset, rotation, scale and flip, so repeated objects, boards,
+tiles or the repeats of a tiled texture don't all look the same.
+
+- **Randomize by** (any combination): Object (each object and instance), Object Index (pass
+  index), Element (each unconnected part, such as the boards of the Floor Generator), Face ID
+  (material index), Particle, and Stochastic Tiling (each UV tile). A **Seed** changes them all.
+- **U/V Offset, Rotation, U/V Scale %:** a From and To range, and Steps for set values (Rotation
+  0° to 360° in 4 steps: quarter turns). Separate V Scale, or one scale for both. Random Flip U
+  and V.
+- **Tile Blend** (with Stochastic Tiling): an Image Texture connected to it blends the edges
+  between the tiles, so the seams don't show (it reads the image up to four times).
+- A **Random** output (0 to 1, per element/object/tile) to vary colors as well.
+- Cycles only, also with Open Shading Language. EEVEE uses the coordinates unchanged.
+
 ### Cycles: Mesh Light and Cylinder Light, as in V-Ray
 
 - **Mesh Light** (Object > Mesh Light, Cycles): any mesh, curve or text object becomes a light.

@@ -1276,6 +1276,61 @@ struct SVMNodeRadialTiling {
 static_assert(alignof(SVMNodeRadialTiling) <= alignof(uint));
 static_assert(sizeof(SVMNodeRadialTiling) % sizeof(uint) == 0);
 
+/* NODE_TEX_RANDOMIZER / NODE_TEX_RANDOMIZER_DERIVATIVE (BlenderViz) */
+enum NodeTexRandomizerMode {
+  NODE_TEX_RANDOMIZER_OBJECT = (1 << 0),
+  NODE_TEX_RANDOMIZER_OBJECT_INDEX = (1 << 1),
+  NODE_TEX_RANDOMIZER_ELEMENT = (1 << 2),
+  NODE_TEX_RANDOMIZER_FACE = (1 << 3),
+  NODE_TEX_RANDOMIZER_PARTICLE = (1 << 4),
+  NODE_TEX_RANDOMIZER_STOCHASTIC = (1 << 5),
+  NODE_TEX_RANDOMIZER_ALL = (1 << 6) - 1,
+};
+
+enum NodeTexRandomizerOption {
+  NODE_TEX_RANDOMIZER_FLIP_U = (1 << 0),
+  NODE_TEX_RANDOMIZER_FLIP_V = (1 << 1),
+  NODE_TEX_RANDOMIZER_V_SCALE = (1 << 2),
+};
+
+struct SVMNodeTexRandomizer {
+  SVMInputFloat3 vector;
+  SVMInputFloat seed;
+  SVMInputFloat tile_blend;
+  SVMInputFloat u_offset_from;
+  SVMInputFloat u_offset_to;
+  SVMInputFloat u_offset_steps;
+  SVMInputFloat v_offset_from;
+  SVMInputFloat v_offset_to;
+  SVMInputFloat v_offset_steps;
+  SVMInputFloat rotation_from;
+  SVMInputFloat rotation_to;
+  SVMInputFloat rotation_steps;
+  SVMInputFloat u_scale_from;
+  SVMInputFloat u_scale_to;
+  SVMInputFloat u_scale_steps;
+  SVMInputFloat v_scale_from;
+  SVMInputFloat v_scale_to;
+  SVMInputFloat v_scale_steps;
+  /* What the randomness depends on, connected by #TextureRandomizerNode::expand. */
+  SVMInputFloat object_random;
+  SVMInputFloat object_index;
+  SVMInputFloat element_random;
+  SVMInputFloat face_index;
+  SVMInputFloat particle_index;
+  uint8_t modes;   /* NodeTexRandomizerMode */
+  uint8_t options; /* NodeTexRandomizerOption */
+  /* With Tile Blend, which of the four tiles around the point (bit 0: the U neighbour, bit 1:
+   * the V neighbour); -1 without. */
+  int8_t blend_corner;
+  SVMStackOffset vector_offset;
+  SVMStackOffset random_offset;
+  SVMStackOffset weight_offset;
+  uint8_t _pad[2];
+};
+static_assert(alignof(SVMNodeTexRandomizer) <= alignof(uint));
+static_assert(sizeof(SVMNodeTexRandomizer) % sizeof(uint) == 0);
+
 /* NODE_TEXTURE_MAPPING, followed by Transform data in the bytecode. */
 struct SVMNodeTextureMapping {
   SVMStackOffset vec_offset;

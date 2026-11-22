@@ -5971,6 +5971,75 @@ static void def_sh_tex_white_noise(BlenderRNA * /*brna*/, StructRNA *srna)
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
 }
 
+/* BlenderViz: Texture Randomizer. The bits are the same as in Cycles (#NodeTexRandomizerMode and
+ * #NodeTexRandomizerOption). */
+static void def_sh_tex_randomizer(BlenderRNA * /*brna*/, StructRNA *srna)
+{
+  struct Flag {
+    const char *identifier;
+    const char *sdna;
+    int bit;
+    const char *name;
+    const char *description;
+    bool changes_sockets;
+  };
+  static const Flag flags[] = {
+      {"use_object", "custom1", 1 << 0, "By Object", "Random per object and per instance", false},
+      {"use_object_index",
+       "custom1",
+       1 << 1,
+       "By Object Index",
+       "Random per object pass index (Object Properties > Relations > Pass Index)",
+       false},
+      {"use_element",
+       "custom1",
+       1 << 2,
+       "By Element",
+       "Random per mesh element: each part that is not connected to the rest, such as a board",
+       false},
+      {"use_face",
+       "custom1",
+       1 << 3,
+       "By Face ID",
+       "Random per material index of the faces (material slot)",
+       false},
+      {"use_particle", "custom1", 1 << 4, "By Particle", "Random per particle", false},
+      {"use_stochastic",
+       "custom1",
+       1 << 5,
+       "Stochastic Tiling",
+       "Random per UV tile, to hide the repetition of a tiled texture",
+       true},
+      {"use_flip_u",
+       "custom2",
+       1 << 0,
+       "Random Flip U",
+       "Mirror the texture along U at random",
+       false},
+      {"use_flip_v",
+       "custom2",
+       1 << 1,
+       "Random Flip V",
+       "Mirror the texture along V at random",
+       false},
+      {"use_v_scale",
+       "custom2",
+       1 << 2,
+       "Separate V Scale",
+       "Random scale along V of its own, instead of the U scale for both",
+       true},
+  };
+  for (const Flag &flag : flags) {
+    PropertyRNA *prop = RNA_def_property(srna, flag.identifier, PROP_BOOLEAN, PROP_NONE);
+    RNA_def_property_boolean_sdna(prop, nullptr, flag.sdna, flag.bit);
+    RNA_def_property_ui_text(prop, flag.name, flag.description);
+    RNA_def_property_update(prop,
+                            NC_NODE | NA_EDITED,
+                            flag.changes_sockets ? "rna_ShaderNode_socket_update" :
+                                                   "rna_Node_update");
+  }
+}
+
 static void def_sh_tex_coord(BlenderRNA * /*brna*/, StructRNA *srna)
 {
   PropertyRNA *prop;
@@ -10428,6 +10497,7 @@ static void rna_def_nodes(BlenderRNA *brna)
   define("ShaderNode", "ShaderNodeTexVoronoi", def_sh_tex_voronoi);
   define("ShaderNode", "ShaderNodeTexWave", def_sh_tex_wave);
   define("ShaderNode", "ShaderNodeTexWhiteNoise", def_sh_tex_white_noise);
+  define("ShaderNode", "ShaderNodeTexRandomizer", def_sh_tex_randomizer);
   define("ShaderNode", "ShaderNodeUVAlongStroke", def_sh_uvalongstroke);
   define("ShaderNode", "ShaderNodeUVMap", def_sh_uvmap);
   define("ShaderNode", "ShaderNodeValToRGB", def_colorramp);

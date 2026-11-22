@@ -734,6 +734,11 @@ add_blender_test(
 )
 
 add_blender_test(
+  cycles_texture_randomizer
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_cycles_texture_randomizer.py
+)
+
+add_blender_test(
   batch_render
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_batch_render.py
 )

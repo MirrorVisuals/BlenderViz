@@ -69,6 +69,7 @@
 #include "kernel/svm/sepcomb_vector.h"
 #include "kernel/svm/sky.h"
 #include "kernel/svm/tex_coord.h"
+#include "kernel/svm/tex_randomizer.h"
 #include "kernel/svm/value.h"
 #include "kernel/svm/vector_rotate.h"
 #include "kernel/svm/vector_transform.h"
@@ -609,6 +610,15 @@ ccl_device void svm_eval_nodes(KernelGlobals kg,
       break;
       SVM_CASE(NODE_SCENE_TIME)
       svm_node_scene_time(kg, stack, svm_node_get<SVMNodeSceneTime>(kg, &offset));
+      break;
+      SVM_CASE(NODE_TEX_RANDOMIZER)
+      svm_node_tex_randomizer<float3>(stack, svm_node_get<SVMNodeTexRandomizer>(kg, &offset));
+      break;
+      SVM_CASE(NODE_TEX_RANDOMIZER_DERIVATIVE)
+      IF_NOT_KERNEL_NODES_FEATURE(VOLUME)
+      {
+        svm_node_tex_randomizer<dual3>(stack, svm_node_get<SVMNodeTexRandomizer>(kg, &offset));
+      }
       break;
       default:
         kernel_assert(!"Unknown node type was passed to the SVM machine");

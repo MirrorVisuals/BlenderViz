@@ -1148,6 +1148,13 @@ static ShaderNode *add_node(Scene *scene,
     nmap->set_base(NodeNormalMapBase(storage.base));
     node = nmap;
   }
+  else if (b_node.is_type("ShaderNodeTexRandomizer"_ustr)) {
+    /* BlenderViz: Texture Randomizer, the flags have the same bits in both. */
+    TextureRandomizerNode *randomizer = graph->create_node<TextureRandomizerNode>();
+    randomizer->set_modes(b_node.custom1);
+    randomizer->set_options(b_node.custom2);
+    node = randomizer;
+  }
   else if (b_node.is_type("ShaderNodeRadialTiling"_ustr)) {
     const auto &storage = *static_cast<blender::NodeRadialTiling *>(b_node.storage);
     RadialTilingNode *radial_tiling = graph->create_node<RadialTilingNode>();
