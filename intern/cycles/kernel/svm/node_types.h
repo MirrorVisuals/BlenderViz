@@ -838,6 +838,9 @@ struct SVMNodeTexSkyCloudsData {
   float map_shading;
   /* Noise for detail finer than the photo: strength (0: none). Its size is `scale`. */
   float detail;
+  /* Cloud edges: gradual falloff (0..1) and noise only along them (0..1). */
+  float edge_softness;
+  float edge_detail;
 };
 static_assert(alignof(SVMNodeTexSkyCloudsData) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSkyCloudsData) % sizeof(uint) == 0);

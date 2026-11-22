@@ -286,7 +286,9 @@ part of the physical sky, with no objects or volumes, so it renders noise-free a
   Poly Haven HDRI); **From HDRI** makes a cloud map out of any HDRI with clouds (the clear sky is
   told apart from the clouds by how much of its blue they hide), packed into the file.
   **Density**, **Photo Shading** (how much of the photo's own light and shade they keep),
-  **Rotation**, and **Detail** with **Detail Size**: fine noise on the cloud layer for close-ups,
+  **Rotation**, **Edge Softness** (a gradual falloff instead of cut-out edges) and **Edge
+  Detail** (noise only along the edges, so they fray into wisps), and **Detail** with **Detail
+  Size**: fine noise on the cloud layer for close-ups,
   finer than the photo, that never adds clouds to clear sky and fades out where it would be
   smaller than a pixel. The sun's glare in the photo is filled with matching clouds from beside
   it. Cloud maps of your own go in `scripts/presets/cycles/cloud_maps`.

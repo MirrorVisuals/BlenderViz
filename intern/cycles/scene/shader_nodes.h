@@ -210,6 +210,8 @@ class SkyTextureNode : public TextureNode {
   NODE_SOCKET_API(int, cloud_seed)
   NODE_SOCKET_API(float, cloud_map_shading)
   NODE_SOCKET_API(float, cloud_detail)
+  NODE_SOCKET_API(float, cloud_edge_softness)
+  NODE_SOCKET_API(float, cloud_edge_detail)
   NODE_SOCKET_API(float3, vector)
   ImageHandle handle;
   /* Cloud map made from a photo (set by the host application); empty: procedural cirrus. */

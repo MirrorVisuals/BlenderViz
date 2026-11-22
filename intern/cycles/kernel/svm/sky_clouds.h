@@ -292,8 +292,53 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
 {
   const float4 m = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir)));
   /* Photos are unreliable right at the horizon (haze, land): fade out there. */
-  float a = saturatef(m.x) * cirrus_smoothstep(0.0f, 0.04f, dir.z);
-  if (a <= 0.0f) {
+  const float horizon = cirrus_smoothstep(0.0f, 0.04f, dir.z);
+  float a = saturatef(m.x) * horizon;
+
+  /* The edges of the clouds: the map around this point (a ring of samples) tells where they are
+   * (the opacity changes fast there) and softens them into a gradual falloff. */
+  float edge = 0.0f;
+  /* The photo's light and shade, and the slope of the opacity (for the relief), softened as
+   * the opacity is. */
+  float shade = m.y;
+  bool have_slope = false;
+  float2 slope = zero_float2();
+  float3 tu = zero_float3(), tv = zero_float3();
+  if (c.edge_softness > 0.0f || c.edge_detail > 0.0f) {
+    const float3 up = (fabsf(dir.z) < 0.999f) ? make_float3(0.0f, 0.0f, 1.0f) :
+                                                make_float3(1.0f, 0.0f, 0.0f);
+    tu = normalize(cross(dir, up));
+    tv = cross(dir, tu);
+    const float radius = (0.15f + 0.9f * c.edge_softness) * (M_PI_F / 180.0f);
+    /* Two rings (inner one turned), weighted toward the middle: a smooth falloff. */
+    float sum = a * 2.0f, sum_shade = m.y * 2.0f, weight = 2.0f, lo = a, hi = a;
+    float gx = 0.0f, gy = 0.0f;
+    for (int i = 0; i < 12; i++) {
+      const bool outer = (i < 6);
+      const float angle = float(i) * (M_PI_F / 3.0f) + (outer ? 0.0f : M_PI_F / 6.0f);
+      const float r = outer ? radius : 0.5f * radius;
+      const float3 d = normalize(dir + (tu * cosf(angle) + tv * sinf(angle)) * r);
+      const float4 ms = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, d)));
+      const float s = saturatef(ms.x) * horizon;
+      const float w = outer ? 0.6f : 1.0f;
+      sum += s * w;
+      sum_shade += ms.y * w;
+      weight += w;
+      if (outer) {
+        gx += s * cosf(angle);
+        gy += s * sinf(angle);
+      }
+      lo = fminf(lo, s);
+      hi = fmaxf(hi, s);
+    }
+    edge = cirrus_smoothstep(0.05f, 0.4f, hi - lo);
+    a += (sum / weight - a) * c.edge_softness;
+    shade += (sum_shade / weight - shade) * c.edge_softness;
+    /* For a linear ramp the ring gives its slope: sum of s cos = 3 r slope. */
+    slope = make_float2(gx, gy) * (1.0f / (3.0f * radius));
+    have_slope = c.edge_softness > 0.0f;
+  }
+  if (a <= 0.0f && edge <= 0.0f) {
     return sky_rgb;
   }
 
@@ -320,11 +365,33 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
     /* Thin parts vary more than thick ones. Toward the horizon perspective would squash the
      * noise into stripes, and the photo has detail enough there: fade it out. */
     const float k = c.detail * (1.5f - a) * cirrus_smoothstep(0.25f, 0.6f, dir.z);
-    a = saturatef(a * (1.0f + 1.5f * k * n));
-    if (a <= 0.0f) {
-      return sky_rgb;
-    }
+    a = saturatef(a * (1.0f + 1.1f * k * n));
   }
+  /* Noise along the edges only: they fray into wisps instead of clean cut-outs. */
+  if (c.edge_detail > 0.0f && edge > 0.0f && c.altitude > 0.0f) {
+    const float earth = c.earth_radius;
+    const float h = c.altitude;
+    const float b = earth * dir.z;
+    const float t = -b + sqrtf(b * b + 2.0f * earth * h + h * h);
+    const float cos_incidence = (earth * dir.z + t) / (earth + h);
+    const bool unknown = (path_flag & PATH_RAY_IMPORTANCE_BAKE) || !(sd->dI > 0.0f);
+    const float pixel_angle = unknown ? 0.02f : clamp(sd->dI, 1e-5f, 0.05f);
+    const float footprint = t * pixel_angle / fmaxf(cos_incidence, 0.05f);
+    const float ca = cosf(c.direction);
+    const float sa = sinf(c.direction);
+    const float size = 0.3f * c.scale;
+    const float x = dir.x * t;
+    const float y = dir.y * t;
+    const float n = cirrus_fbm(
+        (x * ca + y * sa) / size, (-x * sa + y * ca) / size, 4, c.seed + 91u, footprint / size);
+    /* Fray: thin the edge where the noise is low, a little wisp outward where it is high. */
+    a = saturatef(a * (1.0f + 2.0f * c.edge_detail * edge * fminf(n, 0.0f)) +
+                  0.6f * c.edge_detail * edge * fmaxf(n, 0.0f) * (1.0f - a));
+  }
+  if (a <= 0.0f) {
+    return sky_rgb;
+  }
+
   /* Density scales the optical depth: thinner or thicker clouds of the same shapes. */
   const float tau = -logf(fmaxf(1.0f - a, 1e-4f)) * c.density;
   const float alpha = 1.0f - expf(-tau);
@@ -334,14 +401,22 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
   const float3 toward = sun_dir - dir * dot(dir, sun_dir);
   const float toward_len = len(toward);
   if (toward_len > 1e-4f) {
-    const float3 dir_sun = normalize(dir + toward * (0.006f / toward_len));
-    const float a_sun = saturatef(
-        kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir_sun))).x);
+    float a_sun;
+    if (have_slope) {
+      /* From the softened slope, so the relief has no sharp lines either. */
+      const float3 st = toward / toward_len;
+      a_sun = a + 0.006f * (slope.x * dot(st, tu) + slope.y * dot(st, tv));
+    }
+    else {
+      const float3 dir_sun = normalize(dir + toward * (0.006f / toward_len));
+      a_sun = saturatef(
+          kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir_sun))).x);
+    }
     relief = clamp(1.0f + 2.0f * (a - a_sun), 0.6f, 1.3f);
   }
   /* The light and shade in the photo (green, 0.5 neutral): the inner texture of the cloud. */
   if (c.map_shading > 0.0f) {
-    relief *= clamp(1.0f + c.map_shading * (2.0f * m.y - 1.0f), 0.3f, 2.0f);
+    relief *= clamp(1.0f + c.map_shading * (2.0f * shade - 1.0f), 0.3f, 2.0f);
   }
   return cirrus_light(kg, c, dir, sun_dir, sky_rgb, zenith_xyz, alpha, tau, relief);
 }

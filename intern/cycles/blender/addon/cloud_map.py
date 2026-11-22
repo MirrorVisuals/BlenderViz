@@ -251,17 +251,17 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
     opacity *= 1.0 - land
     opacity[~ok] = 0.0
 
-    # The light of the cloud: c = (R - S_R (1 - a)) / a, against the clouds around it.
-    a_safe = np.maximum(a, 0.15)
-    c = np.maximum((rgb[..., 0] - ref_rgb[..., 0] * (1.0 - a_safe)) / a_safe, 1e-6)
-    if c.ndim == 2:
+    # The light and shade inside the clouds: their brightness against the clouds around them,
+    # gently (0.5 neutral). Thin parts show mostly the sky, so they count less.
+    if lum.ndim == 2:
         r = max(2, min(shape) // 60)
-        w = opacity.astype(np.float32)
-        c_mean = np.exp(_blur(np.log(c) * w, r) / np.maximum(_blur(w, r), 1e-4))
+        w = np.clip(opacity, 0.0, 1.0).astype(np.float32)
+        log_lum = np.log2(np.maximum(lum, 1e-9))
+        around = _blur(log_lum * w, r) / np.maximum(_blur(w, r), 1e-4)
+        rel = (log_lum - around) * _smoothstep(0.05, 0.4, opacity)
     else:
-        c_mean = c
-    rel = np.log2(c / np.maximum(c_mean, 1e-9))
-    shading = np.where(opacity > 0.02, np.clip(0.5 + 0.5 * rel, 0.0, 1.0), 0.5)
+        rel = np.zeros_like(lum)
+    shading = 0.5 + 0.25 * np.tanh(1.5 * rel)
     return opacity.astype(np.float32), shading.astype(np.float32)
 
 

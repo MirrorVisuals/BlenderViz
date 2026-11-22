@@ -92,7 +92,7 @@ sky.cloud_direction -= math.radians(90.0)
 sky.cloud_map_shading = 0.0
 check(difference(render("photo_flat"), photo) > 1e-4, "Photo Shading changes them")
 sky.cloud_map_shading = 0.5
-check(abs(sky.cloud_detail - 0.5) < 1e-6, "Detail on by default")
+check(abs(sky.cloud_detail - 0.3) < 1e-6, "Detail on by default")
 # Detail is finer than a pixel of this small wide view: look closer.
 cam.data.lens = 200
 detailed = render("photo_detailed")
@@ -100,7 +100,14 @@ sky.cloud_detail = 0.0
 smooth = render("photo_smooth")
 check(difference(smooth, detailed) > 1e-4,
       "Detail changes them, seen close ({:.5f})".format(difference(smooth, detailed)))
-sky.cloud_detail = 0.5
+sky.cloud_detail = 0.3
+check(abs(sky.cloud_edge_softness - 0.5) < 1e-6 and abs(sky.cloud_edge_detail - 0.5) < 1e-6,
+      "Edge Softness and Edge Detail on by default")
+sky.cloud_edge_softness = 0.0
+sky.cloud_edge_detail = 0.0
+check(difference(render("photo_hard_edges"), detailed) > 1e-4, "the edge settings change them")
+sky.cloud_edge_softness = 0.5
+sky.cloud_edge_detail = 0.5
 cam.data.lens = 24
 sky.cloud_density = 0.0
 check(difference(render("photo_none"), clear) < 1e-6, "Density 0: exactly the clear sky")

@@ -4135,7 +4135,9 @@ static void rna_ShaderNodeTexSky_clouds_update(Main *bmain, Scene *scene, Pointe
     sky->cloud_dapple = 0.0f;
     sky->cloud_comb = DEG2RADF(35.0f);
     sky->cloud_map_shading = 0.5f;
-    sky->cloud_detail = 0.5f;
+    sky->cloud_detail = 0.3f;
+    sky->cloud_edge_softness = 0.5f;
+    sky->cloud_edge_detail = 0.5f;
   }
 
   rna_Node_update(bmain, scene, ptr);
@@ -5536,6 +5538,20 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
                            "Detail",
                            "Noise for detail finer than the photo: it breaks up the edges and "
                            "varies the thickness of the clouds (its size: Detail Size)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_edge_softness", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_text(
+      prop, "Edge Softness", "Gradual falloff at the edges of the clouds, instead of sharp edges");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_edge_detail", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_text(prop,
+                           "Edge Detail",
+                           "Noise only along the edges of the clouds: they fray into wisps "
+                           "instead of clean cut-outs");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
   /* Legacy parameters. */

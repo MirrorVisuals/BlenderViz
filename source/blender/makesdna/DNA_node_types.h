@@ -2645,6 +2645,9 @@ struct NodeTexSky {
   float cloud_map_shading = 0;
   /** With a cloud map: noise for detail finer than the photo, 0..1 (its size: cloud_scale). */
   float cloud_detail = 0;
+  /** With a cloud map: gradual falloff at the cloud edges, and noise only along them, 0..1. */
+  float cloud_edge_softness = 0;
+  float cloud_edge_detail = 0;
 };
 
 struct NodeTexImage {
