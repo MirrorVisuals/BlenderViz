@@ -7,6 +7,7 @@
 #include "kernel/image.h"
 
 #include "kernel/svm/node_types.h"
+#include "kernel/svm/sky_clouds.h"
 #include "kernel/svm/types.h"
 #include "kernel/svm/util.h"
 
@@ -256,6 +257,22 @@ ccl_device_noinline int svm_node_tex_sky(KernelGlobals kg,
     /* Compute Sky */
     rgb = sky_radiance_nishita(
         kg, sd, dir, path_flag, pixel_bottom, pixel_top, sky_data, nishita.texture_id);
+
+    /* BlenderViz: cirrus clouds. */
+    if (node.use_clouds) {
+      const ccl_global SVMNodeTexSkyCloudsData &clouds =
+          *reinterpret_cast<const ccl_global SVMNodeTexSkyCloudsData *>(
+              &kernel_data_fetch(svm_nodes, offset));
+      offset += sizeof(SVMNodeTexSkyCloudsData) / sizeof(uint);
+      if (dir.z > 0.0f) {
+        const float3 sun_dir = spherical_to_direction(nishita.sun_elevation - M_PI_2_F,
+                                                      nishita.sun_rotation - M_PI_2_F);
+        /* The sky straight up, from the same table as the sky itself. */
+        const float3 zenith_xyz = make_float3(
+            kernel_image_interp(kg, sd, nishita.texture_id, dual2(make_float2(0.5f, 1.0f))));
+        rgb = sky_cirrus(kg, sd, path_flag, clouds, normalize(dir), sun_dir, rgb, zenith_xyz);
+      }
+    }
   }
 
   stack_store_float3(stack, node.out_offset, rgb);

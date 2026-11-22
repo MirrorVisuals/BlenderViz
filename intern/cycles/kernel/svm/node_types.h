@@ -767,7 +767,9 @@ struct SVMNodeTexSky {
   NodeSkyType sky_type;
   SVMStackOffset dir_offset;
   SVMStackOffset out_offset;
-  uint8_t _pad[2];
+  /* BlenderViz: #SVMNodeTexSkyCloudsData follows the Nishita data. */
+  uint8_t use_clouds;
+  uint8_t _pad[1];
 };
 static_assert(alignof(SVMNodeTexSky) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSky) % sizeof(uint) == 0);
@@ -803,6 +805,35 @@ struct SVMNodeTexSkyNishitaData {
 };
 static_assert(alignof(SVMNodeTexSkyNishitaData) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSkyNishitaData) % sizeof(uint) == 0);
+
+/* BlenderViz: Sky Texture cirrus clouds (kernel/svm/sky_clouds.h), lengths in km. */
+struct SVMNodeTexSkyCloudsData {
+  /* Sun irradiance at the cloud height (XYZ). */
+  float sun_x;
+  float sun_y;
+  float sun_z;
+  /* Height of the clouds above the eye, and the Earth radius at the eye. */
+  float altitude;
+  float earth_radius;
+  float amount;
+  float density;
+  float direction;
+  float scale;
+  float turbulence;
+  float dapple;
+  float comb;
+  float offset_x;
+  float offset_y;
+  /* Part of the sky's light that comes from the air below the clouds. */
+  float below;
+  /* Optical depth of the air between the eye and the clouds (straight up). */
+  float extinction_r;
+  float extinction_g;
+  float extinction_b;
+  uint seed;
+};
+static_assert(alignof(SVMNodeTexSkyCloudsData) <= alignof(uint));
+static_assert(sizeof(SVMNodeTexSkyCloudsData) % sizeof(uint) == 0);
 
 /* NODE_RGB_RAMP
  * Only covers the fixed header; variable-length table data follows. */

@@ -2619,7 +2619,27 @@ struct NodeTexSky {
   float aerosol_density = 0;
   float ozone_density = 0;
   char sun_disc = 0;
-  char _pad[7] = {};
+  /** BlenderViz: cirrus clouds (Single and Multiple Scattering). */
+  char use_clouds = 0;
+  char _pad[2] = {};
+  int cloud_seed = 0;
+  /** How much of the sky they cover, 0..1. */
+  float cloud_amount = 0;
+  /** Optical thickness. */
+  float cloud_density = 0;
+  /** Height above sea level (m). */
+  float cloud_altitude = 0;
+  /** Wind direction (radians). */
+  float cloud_direction = 0;
+  /** Size of the shapes (1: as in nature). */
+  float cloud_scale = 0;
+  float cloud_turbulence = 0;
+  /** 0: fibrous cirrus, 1: cloudlets in rows (cirrocumulus). */
+  float cloud_dapple = 0;
+  /** Angle of the fibres to the bands (radians). */
+  float cloud_comb = 0;
+  /** Position of the clouds (m), to move them with the wind. */
+  float cloud_offset[2] = {0.0f, 0.0f};
 };
 
 struct NodeTexImage {

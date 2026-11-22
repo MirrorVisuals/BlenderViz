@@ -67,6 +67,27 @@ static void node_shader_buts_tex_sky(ui::Layout &layout, bContext *C, PointerRNA
       col.prop(ptr, "aerosol_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
       col.prop(ptr, "ozone_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
     }
+
+    /* BlenderViz: cirrus clouds. */
+    layout.prop(ptr, "use_clouds", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    if (RNA_boolean_get(ptr, "use_clouds")) {
+      if (BKE_scene_uses_blender_eevee(CTX_data_scene(C))) {
+        layout.label(RPT_("Clouds are not available in EEVEE"), ICON_ERROR);
+      }
+      ui::Layout &col = layout.column(true);
+      col.prop(ptr, "cloud_amount", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col.prop(ptr, "cloud_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col.prop(ptr, "cloud_dapple", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      ui::Layout &col2 = layout.column(true);
+      col2.prop(ptr, "cloud_direction", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col2.prop(ptr, "cloud_comb", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col2.prop(ptr, "cloud_turbulence", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      ui::Layout &col3 = layout.column(true);
+      col3.prop(ptr, "cloud_scale", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col3.prop(ptr, "cloud_altitude", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col3.prop(ptr, "cloud_offset", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col3.prop(ptr, "cloud_seed", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    }
   }
 }
 
@@ -90,6 +111,16 @@ static void node_shader_init_tex_sky(bNodeTree * /*ntree*/, bNode *node)
   tex->aerosol_density = 1.0f;
   tex->ozone_density = 1.0f;
   tex->sky_model = SHD_SKY_MULTIPLE_SCATTERING;
+  /* BlenderViz: clouds off, these for when they are turned on (also set by RNA for older files).
+   */
+  tex->cloud_amount = 0.45f;
+  tex->cloud_density = 1.0f;
+  tex->cloud_altitude = 9000.0f;
+  tex->cloud_direction = DEG2RADF(30.0f);
+  tex->cloud_scale = 1.0f;
+  tex->cloud_turbulence = 0.3f;
+  tex->cloud_dapple = 0.0f;
+  tex->cloud_comb = DEG2RADF(35.0f);
   node->storage = tex;
 }
 

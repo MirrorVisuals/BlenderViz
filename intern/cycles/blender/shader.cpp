@@ -1116,6 +1116,18 @@ static ShaderNode *add_node(Scene *scene,
     sky->set_air_density(storage.air_density);
     sky->set_aerosol_density(storage.aerosol_density);
     sky->set_ozone_density(storage.ozone_density);
+    sky->set_use_clouds(storage.use_clouds);
+    sky->set_cloud_amount(storage.cloud_amount);
+    sky->set_cloud_density(storage.cloud_density);
+    sky->set_cloud_altitude(storage.cloud_altitude);
+    sky->set_cloud_direction(storage.cloud_direction);
+    sky->set_cloud_scale(storage.cloud_scale);
+    sky->set_cloud_turbulence(storage.cloud_turbulence);
+    sky->set_cloud_dapple(storage.cloud_dapple);
+    sky->set_cloud_comb(storage.cloud_comb);
+    sky->set_cloud_offset_x(storage.cloud_offset[0]);
+    sky->set_cloud_offset_y(storage.cloud_offset[1]);
+    sky->set_cloud_seed(storage.cloud_seed);
     const blender::TexMapping &b_texture_mapping = storage.base.tex_mapping;
     get_tex_mapping(sky, &b_texture_mapping);
     node = sky;

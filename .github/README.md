@@ -276,6 +276,23 @@ sidebars, and in a Light Mix button of the Image Editor header.
 - **From the Light Mix add-on:** Import Light Mix Add-on Mix takes over its settings and
   removes its compositor nodes. Disable the add-on afterwards.
 
+### Cycles: Sky clouds, as the clouds of V-Ray Sun & Sky
+
+World Properties > Clouds (or the Sky Texture node, Single and Multiple Scattering): cirrus as
+part of the physical sky, with no objects or volumes, so it renders noise-free and at once.
+
+- **Cirrus** as a thin layer about 9 km up, curving with the Earth: the clouds crowd together
+  toward the horizon and fade into its haze, as in photos. Detail smaller than a pixel is left
+  out, so the horizon doesn't shimmer.
+- **Shapes:** long torn bands along the wind with fibres combed through them, or with **Dapple**
+  small cloudlets in rows (cirrocumulus, "mackerel sky"). **Amount**, **Density**, **Wind
+  Direction**, **Fibre Angle**, **Turbulence** (bends and hooks), **Scale**, **Altitude**,
+  **Offset** (animate it for wind) and **Seed**.
+- **Lit by the sky's sun as seen from the clouds:** white at noon, golden at sunset, still lit
+  just after the sun has set. Ice crystals make them glow toward the sun; the sky above lights
+  them from all sides. Thicker parts turn a little grey, and they dim the sun behind them.
+- Cycles only (EEVEE shows the sky without them).
+
 ### Cycles: Texture Randomizer, as the V-Ray UVW Randomizer
 
 A shader node (Add > Texture > Texture Randomizer) placed before a texture: it gives the

@@ -739,6 +739,11 @@ add_blender_test(
 )
 
 add_blender_test(
+  cycles_sky_clouds
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_cycles_sky_clouds.py
+)
+
+add_blender_test(
   batch_render
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_batch_render.py
 )

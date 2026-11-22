@@ -4119,6 +4119,25 @@ void rna_Node_socket_update(Main *bmain, Scene *scene, PointerRNA *ptr)
   rna_Node_update(bmain, scene, ptr);
 }
 
+/* BlenderViz: Sky Texture clouds. Sky nodes from before the clouds have zeros for their settings:
+ * give them the defaults when the clouds are turned on. */
+static void rna_ShaderNodeTexSky_clouds_update(Main *bmain, Scene *scene, PointerRNA *ptr)
+{
+  bNode *node = ptr->data_as<bNode>();
+  NodeTexSky *sky = static_cast<NodeTexSky *>(node->storage);
+  if (sky->use_clouds && sky->cloud_scale == 0.0f) {
+    sky->cloud_amount = 0.45f;
+    sky->cloud_density = 1.0f;
+    sky->cloud_altitude = 9000.0f;
+    sky->cloud_direction = DEG2RADF(30.0f);
+    sky->cloud_scale = 1.0f;
+    sky->cloud_turbulence = 0.3f;
+    sky->cloud_dapple = 0.0f;
+    sky->cloud_comb = DEG2RADF(35.0f);
+  }
+  rna_Node_update(bmain, scene, ptr);
+}
+
 static void rna_ShaderNode_is_active_output_set(PointerRNA *ptr, bool value)
 {
   bNodeTree *ntree = reinterpret_cast<bNodeTree *>(ptr->owner_id);
@@ -5409,6 +5428,80 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
                            "0 means no ozone, 1 means urban city ozone");
   RNA_def_property_range(prop, 0.0f, 1000.0f);
   RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  /* BlenderViz: cirrus clouds. */
+  prop = RNA_def_property(srna, "use_clouds", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_clouds", 1);
+  RNA_def_property_ui_text(
+      prop, "Clouds", "Cirrus clouds high in the sky, lit by the sun of the sky (Cycles)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNodeTexSky_clouds_update");
+
+  prop = RNA_def_property(srna, "cloud_amount", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_float_default(prop, 0.45f);
+  RNA_def_property_ui_text(prop, "Cloud Amount", "How much of the sky the clouds cover");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_density", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_range(prop, 0.0f, 10.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 4.0f, 10, 2);
+  RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_ui_text(
+      prop, "Cloud Density", "Thickness of the clouds: low is a thin veil, high bright and solid");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_dapple", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_text(prop,
+                           "Dapple",
+                           "From fibrous cirrus (0) to small cloudlets in rows, cirrocumulus or "
+                           "\"mackerel sky\" (1)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_direction", PROP_FLOAT, PROP_ANGLE);
+  RNA_def_property_float_default(prop, DEG2RADF(30.0f));
+  RNA_def_property_ui_text(prop, "Wind Direction", "Direction the cloud bands run along");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_comb", PROP_FLOAT, PROP_ANGLE);
+  RNA_def_property_range(prop, -M_PI_2, M_PI_2);
+  RNA_def_property_float_default(prop, DEG2RADF(35.0f));
+  RNA_def_property_ui_text(prop, "Fibre Angle", "Angle of the fibres to the cloud bands");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_turbulence", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 2.0f);
+  RNA_def_property_float_default(prop, 0.3f);
+  RNA_def_property_ui_text(
+      prop, "Turbulence", "How much the bands bend and curl (hooked \"mares' tails\")");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_scale", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_range(prop, 0.05f, 20.0f);
+  RNA_def_property_ui_range(prop, 0.2f, 5.0f, 10, 2);
+  RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_ui_text(prop, "Cloud Scale", "Size of the cloud shapes (1: as in nature)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_altitude", PROP_FLOAT, PROP_DISTANCE);
+  RNA_def_property_range(prop, 1000.0f, 20000.0f);
+  RNA_def_property_float_default(prop, 9000.0f);
+  RNA_def_property_ui_text(prop,
+                           "Cloud Altitude",
+                           "Height of the clouds above sea level (cirrus: 6 to 12 km, "
+                           "lower for altocumulus)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_offset", PROP_FLOAT, PROP_TRANSLATION);
+  RNA_def_property_array(prop, 2);
+  RNA_def_property_ui_text(
+      prop, "Cloud Offset", "Position of the clouds, to move them (animate it for wind)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_seed", PROP_INT, PROP_NONE);
+  RNA_def_property_range(prop, 0, INT_MAX);
+  RNA_def_property_ui_text(prop, "Cloud Seed", "Another sky with the same settings");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
   /* Legacy parameters. */

@@ -195,6 +195,19 @@ class SkyTextureNode : public TextureNode {
   NODE_SOCKET_API(float, air_density)
   NODE_SOCKET_API(float, aerosol_density)
   NODE_SOCKET_API(float, ozone_density)
+  /* BlenderViz: cirrus clouds. */
+  NODE_SOCKET_API(bool, use_clouds)
+  NODE_SOCKET_API(float, cloud_amount)
+  NODE_SOCKET_API(float, cloud_density)
+  NODE_SOCKET_API(float, cloud_altitude)
+  NODE_SOCKET_API(float, cloud_direction)
+  NODE_SOCKET_API(float, cloud_scale)
+  NODE_SOCKET_API(float, cloud_turbulence)
+  NODE_SOCKET_API(float, cloud_dapple)
+  NODE_SOCKET_API(float, cloud_comb)
+  NODE_SOCKET_API(float, cloud_offset_x)
+  NODE_SOCKET_API(float, cloud_offset_y)
+  NODE_SOCKET_API(int, cloud_seed)
   NODE_SOCKET_API(float3, vector)
   ImageHandle handle;
 
@@ -207,6 +220,7 @@ class SkyTextureNode : public TextureNode {
   }
 
   float get_sun_average_radiance();
+  SVMNodeTexSkyCloudsData clouds_data();
 };
 
 class OutputNode : public ShaderNode {

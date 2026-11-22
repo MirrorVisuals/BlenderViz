@@ -8,7 +8,7 @@ import bpy
 from bpy.app.translations import contexts as i18n_contexts
 from bl_ui.utils import PresetPanel
 
-from bpy.types import Panel, Menu
+from bpy.types import Panel, Menu, Operator
 
 from bl_ui.properties_grease_pencil_common import GreasePencilSimplifyPanel
 from bl_ui.properties_render import draw_curves_settings, CompositorPerformanceButtonsPanel, CompositorDenoisePerformanceButtonsPanel
@@ -1821,6 +1821,88 @@ class CYCLES_WORLD_PT_surface(CyclesButtonsPanel, Panel):
             layout.prop(world, "color")
 
 
+def world_sky_node(world):
+    """The Sky Texture of the world that can have clouds (the one in use first)."""
+    tree = world.node_tree if world else None
+    if tree is None:
+        return None
+    skies = [node for node in tree.nodes if node.bl_idname == "ShaderNodeTexSky" and
+             node.sky_type in {'SINGLE_SCATTERING', 'MULTIPLE_SCATTERING'}]
+    skies.sort(key=lambda node: (node.mute, not any(output.is_linked for output in node.outputs)))
+    return skies[0] if skies else None
+
+
+class CYCLES_OT_world_sky_clouds_add(Operator):
+    """Make the world a physical sky with clouds (a Sky Texture into the Background)"""
+    bl_idname = "cycles.world_sky_clouds_add"
+    bl_label = "Add Sky with Clouds"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        scene = context.scene
+        world = scene.world
+        if world is None:
+            world = bpy.data.worlds.new("World")
+            scene.world = world
+        tree = world.node_tree
+        output = next((n for n in tree.nodes if n.bl_idname == "ShaderNodeOutputWorld"), None)
+        if output is None:
+            output = tree.nodes.new("ShaderNodeOutputWorld")
+        background = next((n for n in tree.nodes if n.bl_idname == "ShaderNodeBackground"), None)
+        if background is None:
+            background = tree.nodes.new("ShaderNodeBackground")
+            background.location = output.location.x - 200, output.location.y
+            tree.links.new(background.outputs["Background"], output.inputs["Surface"])
+        sky = tree.nodes.new("ShaderNodeTexSky")
+        sky.sky_type = 'MULTIPLE_SCATTERING'
+        sky.location = background.location.x - 240, background.location.y
+        tree.links.new(sky.outputs["Color"], background.inputs["Color"])
+        sky.use_clouds = True
+        return {'FINISHED'}
+
+
+class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
+    bl_label = "Clouds"
+    bl_context = "world"
+
+    @classmethod
+    def poll(cls, context):
+        return context.world and CyclesButtonsPanel.poll(context)
+
+    def draw_header(self, context):
+        sky = world_sky_node(context.world)
+        if sky:
+            self.layout.prop(sky, "use_clouds", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        sky = world_sky_node(context.world)
+        if sky is None:
+            layout.label(text="Clouds are part of the Sky Texture (Single or Multiple Scattering)")
+            layout.operator("cycles.world_sky_clouds_add", icon='OUTLINER_DATA_VOLUME')
+            return
+
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.active = sky.use_clouds
+        col = layout.column(align=True)
+        col.prop(sky, "cloud_amount", text="Amount")
+        col.prop(sky, "cloud_density", text="Density")
+        col.prop(sky, "cloud_dapple")
+        col = layout.column(align=True)
+        col.prop(sky, "cloud_direction", text="Wind Direction")
+        col.prop(sky, "cloud_comb", text="Fibre Angle")
+        col.prop(sky, "cloud_turbulence")
+        col = layout.column(align=True)
+        col.prop(sky, "cloud_scale", text="Scale")
+        col.prop(sky, "cloud_altitude", text="Altitude")
+        col.prop(sky, "cloud_offset", text="Offset")
+        col.prop(sky, "cloud_seed", text="Seed")
+        col = layout.column(align=True)
+        col.prop(sky, "sun_elevation")
+        col.prop(sky, "sun_rotation")
+
+
 class CYCLES_WORLD_PT_volume(CyclesButtonsPanel, Panel):
     bl_label = "Volume"
     bl_translation_context = i18n_contexts.id_id
@@ -2761,6 +2843,8 @@ classes = (
     CYCLES_LIGHT_PT_light_falloff,
     CYCLES_WORLD_PT_preview,
     CYCLES_WORLD_PT_surface,
+    CYCLES_OT_world_sky_clouds_add,
+    CYCLES_WORLD_PT_clouds,
     CYCLES_WORLD_PT_volume,
     CYCLES_WORLD_PT_mist,
     CYCLES_WORLD_PT_ray_visibility,

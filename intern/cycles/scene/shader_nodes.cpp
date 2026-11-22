@@ -915,6 +915,60 @@ static void sky_texture_precompute_nishita(SunSky *sunsky,
   sunsky->nishita_data[10] = -earth_intersection_angle;
 }
 
+/* BlenderViz: the cirrus clouds (kernel/svm/sky_clouds.h). */
+SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
+{
+  /* The sun as seen from the clouds: through less air than from the ground, so whiter, and
+   * still shining on them for a while after it has set below. */
+  const float sun_size = get_sun_size();
+  float bottom[3], top[3];
+  if (sky_type == NODE_SKY_MULTIPLE_SCATTERING) {
+    SKY_multiple_scattering_precompute_sun(sun_elevation,
+                                           sun_size,
+                                           cloud_altitude,
+                                           air_density,
+                                           aerosol_density,
+                                           ozone_density,
+                                           bottom,
+                                           top);
+  }
+  else {
+    SKY_single_scattering_precompute_sun(
+        sun_elevation, sun_size, cloud_altitude, air_density, aerosol_density, bottom, top);
+  }
+  /* The pixels are radiance over the sun disc: back to the irradiance of the sun. */
+  const float solid_angle = M_2PI_F * (1.0f - cosf(sun_size * 0.5f));
+  const float sun_scale = 0.5f * solid_angle * sun_intensity;
+
+  const float eye = altitude / 1000.0f;
+  const float h = max(cloud_altitude / 1000.0f - eye, 0.0f);
+  /* Rayleigh (8 km scale height) and aerosols (1.2 km) between the eye and the clouds. */
+  const float rayleigh = air_density * 8.0f * (1.0f - expf(-h / 8.0f));
+  const float mie = aerosol_density * 0.0233f * 1.2f * (1.0f - expf(-h / 1.2f));
+
+  return SVMNodeTexSkyCloudsData{
+      .sun_x = (bottom[0] + top[0]) * sun_scale,
+      .sun_y = (bottom[1] + top[1]) * sun_scale,
+      .sun_z = (bottom[2] + top[2]) * sun_scale,
+      .altitude = h,
+      .earth_radius = 6360.0f + eye,
+      .amount = cloud_amount,
+      .density = cloud_density,
+      .direction = cloud_direction,
+      .scale = max(cloud_scale, 0.01f),
+      .turbulence = cloud_turbulence,
+      .dapple = clamp(cloud_dapple, 0.0f, 1.0f),
+      .comb = cloud_comb,
+      .offset_x = cloud_offset_x / 1000.0f,
+      .offset_y = cloud_offset_y / 1000.0f,
+      .below = 1.0f - expf(-h / 8.0f),
+      .extinction_r = 0.0058f * rayleigh + mie,
+      .extinction_g = 0.0135f * rayleigh + mie,
+      .extinction_b = 0.0331f * rayleigh + mie,
+      .seed = uint(cloud_seed),
+  };
+}
+
 float SkyTextureNode::get_sun_average_radiance()
 {
   const float angular_diameter = get_sun_size();
@@ -992,6 +1046,19 @@ NODE_DEFINE(SkyTextureNode)
   SOCKET_FLOAT(air_density, "Air", 1.0f);
   SOCKET_FLOAT(aerosol_density, "Aerosol", 1.0f);
   SOCKET_FLOAT(ozone_density, "Ozone", 1.0f);
+  /* BlenderViz: cirrus clouds. */
+  SOCKET_BOOLEAN(use_clouds, "Clouds", false);
+  SOCKET_FLOAT(cloud_amount, "Cloud Amount", 0.45f);
+  SOCKET_FLOAT(cloud_density, "Cloud Density", 1.0f);
+  SOCKET_FLOAT(cloud_altitude, "Cloud Altitude", 9000.0f);
+  SOCKET_FLOAT(cloud_direction, "Cloud Direction", 0.0f);
+  SOCKET_FLOAT(cloud_scale, "Cloud Scale", 1.0f);
+  SOCKET_FLOAT(cloud_turbulence, "Cloud Turbulence", 0.3f);
+  SOCKET_FLOAT(cloud_dapple, "Cloud Dapple", 0.0f);
+  SOCKET_FLOAT(cloud_comb, "Cloud Comb", 0.6f);
+  SOCKET_FLOAT(cloud_offset_x, "Cloud Offset X", 0.0f);
+  SOCKET_FLOAT(cloud_offset_y, "Cloud Offset Y", 0.0f);
+  SOCKET_INT(cloud_seed, "Cloud Seed", 0);
   SOCKET_IN_POINT(vector, "Vector", zero_float3(), SocketType::LINK_TEXTURE_GENERATED);
   SOCKET_OUT_COLOR(color, "Color");
 
@@ -1084,12 +1151,16 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
 
   const SVMStackOffset vector_offset = tex_mapping.compile_begin(compiler, vector_in, nullptr);
 
+  const bool clouds = use_clouds && cloud_density > 0.0f &&
+                      (sky_type == NODE_SKY_SINGLE_SCATTERING ||
+                       sky_type == NODE_SKY_MULTIPLE_SCATTERING);
   compiler.add_node(this,
                     NODE_TEX_SKY,
                     SVMNodeTexSky{
                         .sky_type = sky_type,
                         .dir_offset = vector_offset,
                         .out_offset = compiler.output("Color"),
+                        .use_clouds = uint8_t(clouds),
                     });
   if (sky_type == NODE_SKY_PREETHAM || sky_type == NODE_SKY_HOSEK) {
     SVMNodeTexSkyPreethamData preetham_data = {};
@@ -1118,6 +1189,9 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
         .earth_intersection_angle = sunsky.nishita_data[10],
         .texture_id = uint(handle.kernel_id()),
     });
+    if (clouds) {
+      compiler.add_node_data(clouds_data());
+    }
   }
 
   tex_mapping.compile_end(compiler, vector_in, vector_offset);
