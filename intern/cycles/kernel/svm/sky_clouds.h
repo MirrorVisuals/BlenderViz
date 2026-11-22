@@ -283,7 +283,7 @@ ccl_device_inline float2 cirrus_map_uv(const ccl_global SVMNodeTexSkyCloudsData 
  * the photo), lit by this sky's sun. */
 ccl_device float3 sky_cirrus_map(KernelGlobals kg,
                                  ccl_private ShaderData *sd,
-                                 const uint32_t /*path_flag*/,
+                                 const uint32_t path_flag,
                                  const ccl_global SVMNodeTexSkyCloudsData &c,
                                  const float3 dir,
                                  const float3 sun_dir,
@@ -292,9 +292,38 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
 {
   const float4 m = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir)));
   /* Photos are unreliable right at the horizon (haze, land): fade out there. */
-  const float a = saturatef(m.x) * cirrus_smoothstep(0.0f, 0.04f, dir.z);
+  float a = saturatef(m.x) * cirrus_smoothstep(0.0f, 0.04f, dir.z);
   if (a <= 0.0f) {
     return sky_rgb;
+  }
+
+  /* Detail finer than the photo: noise on the cloud layer (so in its perspective, turning with
+   * the clouds) that thins the clouds and varies their thickness, never adds clouds to clear sky.
+   * It fades out where it would be smaller than a pixel. */
+  if (c.detail > 0.0f && c.altitude > 0.0f) {
+    const float earth = c.earth_radius;
+    const float h = c.altitude;
+    const float b = earth * dir.z;
+    const float t = -b + sqrtf(b * b + 2.0f * earth * h + h * h);
+    const float cos_incidence = (earth * dir.z + t) / (earth + h);
+    const bool unknown = (path_flag & PATH_RAY_IMPORTANCE_BAKE) || !(sd->dI > 0.0f);
+    const float pixel_angle = unknown ? 0.02f : clamp(sd->dI, 1e-5f, 0.05f);
+    const float footprint = t * pixel_angle / fmaxf(cos_incidence, 0.05f);
+    const float ca = cosf(c.direction);
+    const float sa = sinf(c.direction);
+    const float x = dir.x * t;
+    const float y = dir.y * t;
+    const float size = 0.15f * c.scale;
+    const float u = (x * ca + y * sa) / size;
+    const float v = (-x * sa + y * ca) / size;
+    const float n = cirrus_fbm(u, v, 4, c.seed + 71u, footprint / size);
+    /* Thin parts vary more than thick ones. Toward the horizon perspective would squash the
+     * noise into stripes, and the photo has detail enough there: fade it out. */
+    const float k = c.detail * (1.5f - a) * cirrus_smoothstep(0.25f, 0.6f, dir.z);
+    a = saturatef(a * (1.0f + 1.5f * k * n));
+    if (a <= 0.0f) {
+      return sky_rgb;
+    }
   }
   /* Density scales the optical depth: thinner or thicker clouds of the same shapes. */
   const float tau = -logf(fmaxf(1.0f - a, 1e-4f)) * c.density;

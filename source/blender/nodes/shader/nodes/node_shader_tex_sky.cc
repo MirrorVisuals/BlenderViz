@@ -81,6 +81,10 @@ static void node_shader_buts_tex_sky(ui::Layout &layout, bContext *C, PointerRNA
         col.prop(ptr, "cloud_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         col.prop(ptr, "cloud_map_shading", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         col.prop(ptr, "cloud_direction", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        ui::Layout &col2 = layout.column(true);
+        col2.prop(ptr, "cloud_detail", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        col2.prop(ptr, "cloud_scale", ui::ITEM_R_SPLIT_EMPTY_NAME, IFACE_("Detail Size"), ICON_NONE);
+        col2.prop(ptr, "cloud_seed", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         return;
       }
       ui::Layout &col = layout.column(true);
@@ -131,6 +135,7 @@ static void node_shader_init_tex_sky(bNodeTree * /*ntree*/, bNode *node)
   tex->cloud_dapple = 0.0f;
   tex->cloud_comb = DEG2RADF(35.0f);
   tex->cloud_map_shading = 0.5f;
+  tex->cloud_detail = 0.5f;
   node->storage = tex;
 }
 

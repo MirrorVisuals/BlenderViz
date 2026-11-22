@@ -2016,6 +2016,10 @@ class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
             col.prop(sky, "cloud_density", text="Density")
             col.prop(sky, "cloud_map_shading")
             col.prop(sky, "cloud_direction", text="Rotation")
+            col = layout.column(align=True)
+            col.prop(sky, "cloud_detail")
+            col.prop(sky, "cloud_scale", text="Detail Size")
+            col.prop(sky, "cloud_seed", text="Seed")
         else:
             col = layout.column(align=True)
             col.prop(sky, "cloud_amount", text="Amount")

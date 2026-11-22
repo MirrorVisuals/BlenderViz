@@ -1129,6 +1129,7 @@ static ShaderNode *add_node(Scene *scene,
     sky->set_cloud_offset_y(storage.cloud_offset[1]);
     sky->set_cloud_seed(storage.cloud_seed);
     sky->set_cloud_map_shading(storage.cloud_map_shading);
+    sky->set_cloud_detail(storage.cloud_detail);
     /* BlenderViz: cloud map, made from a photo (the node's image). */
     blender::Image *b_cloud_image = blender::id_cast<blender::Image *>(b_node.id);
     if (b_cloud_image && storage.use_clouds) {

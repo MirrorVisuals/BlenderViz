@@ -133,8 +133,9 @@ def sample_equirectangular(pixels, directions):
 # -----------------------------------------------------------------------------
 # Clouds from a photo.
 
-def find_sun(pixels):
-    """Direction of the sun in an equirectangular HDRI: the centre of its brightest pixels."""
+def find_sun(pixels, with_color=False):
+    """Direction of the sun in an equirectangular HDRI: the centre of its brightest pixels (and
+    their color, scaled to luminance 1, with `with_color`)."""
     h, w = pixels.shape[:2]
     lum = pixels[..., :3].mean(axis=-1)
     top = lum >= np.percentile(lum, 99.995)
@@ -146,7 +147,16 @@ def find_sun(pixels):
     phi = (0.5 - u) * 2.0 * math.pi
     d = np.stack([np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)], -1)
     d = (d * wts[:, None]).sum(axis=0)
-    return d / max(np.linalg.norm(d), 1e-9)
+    d = d / max(np.linalg.norm(d), 1e-9)
+    if not with_color:
+        return d
+    rgb = pixels[ys, xs, :3].astype(np.float64).mean(axis=0)
+    lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    color = rgb / lum if lum > 0 else np.ones(3)
+    # A clipped sun reads white: then assume the usual midday color.
+    if np.ptp(color) < 0.02:
+        color = np.array([1.08, 0.99, 0.86])
+    return d, color
 
 
 def _binned(values, bins, nbins, func, valid):
@@ -164,14 +174,16 @@ def _binned(values, bins, nbins, func, valid):
     return out
 
 
-def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06):
+def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 1.0, 1.0)):
     """Opacity of the clouds and their shading in a photo of the sky (linear RGB, ... x 3), seen
     in `dirs` (z up), lit by the sun in `sun_dir`.
 
     A pixel is the clear sky behind the cloud, dimmed by its opacity a, plus the light of the
-    cloud, which is white: R = S_R (1 - a) + c a and B = S_B (1 - a) + c a. So
-    B - R = (S_B - S_R)(1 - a): the cloud dims the blueness of the sky in proportion to its opacity,
-    whatever its own brightness. The clear sky S changes smoothly with the height above the horizon
+    cloud, which has the color w of the sun (luminance 1): R = S_R (1 - a) + c a w_R,
+    B = S_B (1 - a) + c a w_B, L = S_L (1 - a) + c a. With q = w_B - w_R,
+    B - R - q L = (S_B - S_R - q S_L)(1 - a): the cloud dims this blueness of the sky in proportion
+    to its opacity, whatever its own brightness. (Sunlight is warm: without q, bright thin veils
+    near the sun would read as opaque.) The clear sky S changes smoothly with the height above the horizon
     and the angle to the sun: it is estimated per pair of those angles from the bluest pixels
     anywhere in the sky (the gaps between the clouds). Then c, the light of the cloud, gives its
     shading. Things darker than the sky (land, trees, buildings) are not clouds.
@@ -183,7 +195,8 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06):
         valid = np.ones(shape, dtype=bool)
     rgb = np.maximum(rgb.astype(np.float32), 0.0)
     lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
-    blue = rgb[..., 2] - rgb[..., 0]
+    q = float(sun_color[2] - sun_color[0])
+    blue = rgb[..., 2] - rgb[..., 0] - q * lum
     blue_s = _blur(blue, 1) if blue.ndim == 2 else blue
 
     # Bins of (zenith angle, angle to the sun).
@@ -219,24 +232,23 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06):
     ref_lum = 0.2126 * ref_rgb[..., 0] + 0.7152 * ref_rgb[..., 1] + 0.0722 * ref_rgb[..., 2]
 
     a = 1.0 - np.clip(blue_s / ref_blue, 0.0, 1.0)
-    # Below `noise` it is the photo's grain and the unevenness of the clear sky.
-    opacity = np.clip((a - noise) / (1.0 - noise), 0.0, 1.0)
-    # Where the sky is barely blue (around the sun, a hazy horizon) its blueness can't tell clouds
-    # apart: trust it less there.
-    reliable = 0.5 + 0.5 * _smoothstep(0.03, 0.12, ref_blue / np.maximum(ref_lum, 1e-6))
-    opacity *= reliable
+    # Below `noise` it is the photo's grain and the unevenness of the clear sky: fade in softly, no
+    # hard edge.
+    opacity = _smoothstep(0.5 * noise, 2.5 * noise, a) * a
+    # Where all the blue is hidden the blueness can't tell thick from thicker: there the brightness
+    # of the photo can (brighter, thicker). Without it these parts would be flat.
+    lum_rel = np.log2(np.maximum(lum, 1e-9) / np.maximum(_blur(lum, max(2, min(shape) // 80))
+                                                         if lum.ndim == 2 else lum, 1e-9))
+    full = _smoothstep(0.6, 1.0, a)
+    opacity *= 1.0 - full * np.clip(0.35 - 0.6 * lum_rel, 0.0, 0.6)
+    # A soft top: even thick cirrus lets a little sky through.
+    opacity = np.where(opacity < 0.7, opacity, 0.7 + 0.25 * np.tanh((opacity - 0.7) / 0.25))
     # Land, trees, buildings: darker than the sky (not near the sun, where the sky is too bright
     # to compare with).
     elevation = np.degrees(math.pi / 2 - theta)
     land = (1.0 - _smoothstep(0.35, 0.6, lum / ref_lum)) * (1.0 - _smoothstep(15.0, 25.0, elevation))
     land *= _smoothstep(8.0, 14.0, np.degrees(gamma))
     opacity *= 1.0 - land
-    # Over the sun and its glare: fade into the average of the clouds around it, so no disc shows.
-    ring = ok & (gamma >= math.radians(4.0)) & (gamma < math.radians(7.0))
-    if ring.any():
-        fill = float(np.median(opacity[ring]))
-        keep = _smoothstep(math.radians(2.0), math.radians(6.0), gamma)
-        opacity = opacity * keep + fill * (1.0 - keep)
     opacity[~ok] = 0.0
 
     # The light of the cloud: c = (R - S_R (1 - a)) / a, against the clouds around it.
@@ -251,6 +263,81 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06):
     rel = np.log2(c / np.maximum(c_mean, 1e-9))
     shading = np.where(opacity > 0.02, np.clip(0.5 + 0.5 * rel, 0.0, 1.0), 0.5)
     return opacity.astype(np.float32), shading.astype(np.float32)
+
+
+def _map_pixel(d, size):
+    """Pixel (x, y, rows bottom to top) of the cloud map in direction d (map frame)."""
+    rho = np.sqrt(d[..., 0] ** 2 + d[..., 1] ** 2)
+    r = np.arccos(np.clip(d[..., 2], -1.0, 1.0)) * (2.0 / math.pi)
+    k = np.where(rho > 1e-9, 0.5 * r / np.maximum(rho, 1e-9), 0.0)
+    return (0.5 + d[..., 0] * k) * size - 0.5, (0.5 + d[..., 1] * k) * size - 0.5
+
+
+def _bilinear(img, x, y):
+    h, w = img.shape
+    x = np.clip(x, 0, w - 1.001)
+    y = np.clip(y, 0, h - 1.001)
+    x0, y0 = np.floor(x).astype(int), np.floor(y).astype(int)
+    fx, fy = x - x0, y - y0
+    return ((img[y0, x0] * (1 - fx) + img[y0, x0 + 1] * fx) * (1 - fy) +
+            (img[y0 + 1, x0] * (1 - fx) + img[y0 + 1, x0 + 1] * fx) * fy)
+
+
+def _fill_glare(opacity, shading, dirs, sun, inside, rotation, radius_deg=16.0):
+    """The sun and its glare hide the clouds around it: fill that circle with real clouds from
+    beside it at the same height above the horizon (so with the same perspective), like a clone
+    stamp, blended in softly. `dirs` and `sun` are in the frame of the photo, the maps in the
+    frame of the cloud map."""
+    sun = np.asarray(sun, dtype=np.float32)
+    gamma = np.arccos(np.clip(dirs @ sun, -1.0, 1.0))
+    radius = math.radians(radius_deg)
+    hole = inside & (gamma < radius)
+    if not hole.any():
+        return opacity, shading
+    d = dirs[hole]
+    g = gamma[hole]
+    # The turn around the zenith whose clouds best match those just around the glare (a ring
+    # around it), clear of the glare itself.
+    ca, sa = math.cos(rotation), math.sin(rotation)
+
+    def to_map(v, angle):
+        c, s_ = math.cos(angle + rotation), math.sin(angle + rotation)
+        return np.stack([v[:, 0] * c + v[:, 1] * s_, -v[:, 0] * s_ + v[:, 1] * c, v[:, 2]], 1)
+
+    ring = inside & (gamma >= radius) & (gamma < 1.5 * radius)
+    ring_dirs = dirs[ring]
+    step = max(1, len(ring_dirs) // 4000)
+    ring_dirs = ring_dirs[::step]
+    rx, ry = _map_pixel(to_map(ring_dirs, 0.0), opacity.shape[0])
+    ring_op = _bilinear(opacity, rx, ry)
+    best, best_err = None, None
+    for degrees in list(range(25, 180, 5)) + list(range(-25, -180, -5)):
+        angle = math.radians(degrees)
+        c, s_ = math.cos(-angle), math.sin(-angle)
+        # The source of the glare circle must lie outside the glare.
+        moved_sun = np.array([sun[0] * c - sun[1] * s_, sun[0] * s_ + sun[1] * c, sun[2]])
+        if math.acos(float(np.clip(moved_sun @ sun, -1.0, 1.0))) < 2.2 * radius:
+            continue
+        sx, sy = _map_pixel(to_map(ring_dirs, angle), opacity.shape[0])
+        src_op = _bilinear(opacity, sx, sy)
+        err = float(np.mean((src_op - ring_op) ** 2))
+        if best_err is None or err < best_err:
+            best, best_err = angle, err
+            gain = float(np.clip(ring_op.mean() / max(src_op.mean(), 1e-3), 0.6, 2.0))
+    if best is None:
+        return opacity, shading
+    turn = best + rotation
+    ct, st = math.cos(turn), math.sin(turn)
+    # The source in the frame of the cloud map (photo frame turned by `rotation`, plus `turn`).
+    src = np.stack([d[:, 0] * ct + d[:, 1] * st, -d[:, 0] * st + d[:, 1] * ct, d[:, 2]], axis=1)
+    px, py = _map_pixel(src, opacity.shape[0])
+    keep = _smoothstep(0.4 * radius, radius, g)
+    opacity = opacity.copy()
+    shading = shading.copy()
+    clone = np.clip(_bilinear(opacity, px, py) * gain, 0.0, 0.95)
+    opacity[hole] = opacity[hole] * keep + clone * (1.0 - keep)
+    shading[hole] = shading[hole] * keep + _bilinear(shading, px, py) * (1.0 - keep)
+    return opacity, shading
 
 
 def cloud_map_from_equirectangular(pixels, size=2048, rotation=0.0, horizon_fade=4.0):
@@ -273,8 +360,9 @@ def _cloud_map_from_equirectangular(pixels, size, rotation, horizon_fade):
         dirs = np.stack([dx, dy, dirs[..., 2]], axis=-1)
     rgb = sample_equirectangular(pixels[..., :3].astype(np.float32), dirs)
     # `dirs` are directions of the photo, so is its sun.
-    sun = find_sun(pixels)
-    opacity, shading = separate_clouds(rgb, dirs, sun, valid=inside)
+    sun, sun_color = find_sun(pixels, with_color=True)
+    opacity, shading = separate_clouds(rgb, dirs, sun, valid=inside, sun_color=sun_color)
+    opacity, shading = _fill_glare(opacity, shading, dirs, sun, inside, rotation)
     elevation = np.degrees(np.arcsin(np.clip(dirs[..., 2], 0.0, 1.0)))
     opacity *= _smoothstep(0.0, max(horizon_fade, 1e-3), elevation)
     out = np.zeros((size, size, 4), dtype=np.float32)

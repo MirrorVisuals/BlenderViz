@@ -2643,7 +2643,8 @@ struct NodeTexSky {
   /** With a cloud map (the node's image, made from a photo): how much of the light and shade the
    * clouds had in the photo they keep, 0..1. */
   float cloud_map_shading = 0;
-  char _pad2[4] = {};
+  /** With a cloud map: noise for detail finer than the photo, 0..1 (its size: cloud_scale). */
+  float cloud_detail = 0;
 };
 
 struct NodeTexImage {

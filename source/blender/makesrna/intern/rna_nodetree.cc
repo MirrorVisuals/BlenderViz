@@ -4135,7 +4135,9 @@ static void rna_ShaderNodeTexSky_clouds_update(Main *bmain, Scene *scene, Pointe
     sky->cloud_dapple = 0.0f;
     sky->cloud_comb = DEG2RADF(35.0f);
     sky->cloud_map_shading = 0.5f;
+    sky->cloud_detail = 0.5f;
   }
+
   rna_Node_update(bmain, scene, ptr);
 }
 
@@ -5526,6 +5528,14 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
                            "Photo Shading",
                            "How much of the light and shade the clouds had in the photo they keep "
                            "(the rest comes from this sky's sun)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cloud_detail", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_ui_text(prop,
+                           "Detail",
+                           "Noise for detail finer than the photo: it breaks up the edges and "
+                           "varies the thickness of the clouds (its size: Detail Size)");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
   /* Legacy parameters. */
