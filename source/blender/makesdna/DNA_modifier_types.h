@@ -2368,6 +2368,7 @@ enum FloorGeneratorModifierFlag {
   MOD_FLOORGEN_RANDOM_FLIP_V = (1 << 5),
   MOD_FLOORGEN_RANDOM_OFFSET_U = (1 << 6),
   MOD_FLOORGEN_RANDOM_OFFSET_V = (1 << 7),
+  MOD_FLOORGEN_RANDOM_ROTATE_UV = (1 << 8),
 };
 
 struct FloorGeneratorModifierData {
@@ -2419,7 +2420,8 @@ struct FloorGeneratorModifierData {
   float weld = 0.001f;
   int material_count = 1;
   char uvmap_name[/*MAX_CUSTOMDATA_LAYER_NAME*/ 68] = "UVMap";
-  char _pad[4] = {};
+  /** Rotation of the UVs of every board (radians). */
+  float uv_rotation = 0.0f;
 };
 
 /** #DataTransferModifierData.flags */

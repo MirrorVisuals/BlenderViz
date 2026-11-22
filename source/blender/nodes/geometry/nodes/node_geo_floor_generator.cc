@@ -276,6 +276,12 @@ static void node_declare(NodeDeclarationBuilder &b)
     panel.add_input<decl::String>("UV Map"_ustr)
         .default_value("UVMap")
         .description("UV map written (a full size board spans 0 to 1); empty: none");
+    panel.add_input<decl::Float>("UV Rotation"_ustr)
+        .subtype(PROP_ANGLE)
+        .description(
+            "Turn the UVs of every board around its middle (90 degrees: across the board)");
+    panel.add_input<decl::Bool>("Random UV Rotation"_ustr)
+        .description("Turn the UVs of each board by a random quarter turn more");
     panel.add_input<decl::Bool>("Random Flip U"_ustr)
         .description("Mirror the UVs of random boards along their length");
     panel.add_input<decl::Bool>("Random Flip V"_ustr)
@@ -343,6 +349,8 @@ static void node_geo_exec(GeoNodeExecParams params)
   p.random_flip_v = params.extract_input<bool>("Random Flip V"_ustr);
   p.random_offset_u = params.extract_input<bool>("Random Offset U"_ustr);
   p.random_offset_v = params.extract_input<bool>("Random Offset V"_ustr);
+  p.uv_rotation = params.extract_input<float>("UV Rotation"_ustr);
+  p.random_rotate_uv = params.extract_input<bool>("Random UV Rotation"_ustr);
   p.material_count = params.extract_input<int>("Random Materials"_ustr);
 
   std::string warning;

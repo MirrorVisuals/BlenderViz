@@ -78,6 +78,8 @@ static geometry::FloorGeneratorParams params_from_modifier(const FloorGeneratorM
   p.random_flip_v = fmd.flag & MOD_FLOORGEN_RANDOM_FLIP_V;
   p.random_offset_u = fmd.flag & MOD_FLOORGEN_RANDOM_OFFSET_U;
   p.random_offset_v = fmd.flag & MOD_FLOORGEN_RANDOM_OFFSET_V;
+  p.uv_rotation = fmd.uv_rotation;
+  p.random_rotate_uv = fmd.flag & MOD_FLOORGEN_RANDOM_ROTATE_UV;
   p.material_count = fmd.material_count;
   p.uv_map_name = fmd.uvmap_name;
   return p;
@@ -217,6 +219,8 @@ static void uv_panel_draw(const bContext * /*C*/, Panel *panel)
   PointerRNA *ptr = modifier_panel_get_property_pointers(panel, nullptr);
   layout.use_property_split_set(true);
   layout.prop(ptr, "uv_layer", UI_ITEM_NONE, IFACE_("UV Map"), ICON_NONE);
+  layout.prop(ptr, "uv_rotation", UI_ITEM_NONE, IFACE_("UV Rotation"), ICON_NONE);
+  layout.prop(ptr, "use_random_rotate_uv", UI_ITEM_NONE, IFACE_("Random 90°"), ICON_NONE);
   ui::Layout &col = layout.column(true, IFACE_("Random Flip"));
   col.prop(ptr, "use_random_flip_u", UI_ITEM_NONE, IFACE_("U"), ICON_NONE);
   col.prop(ptr, "use_random_flip_v", UI_ITEM_NONE, IFACE_("V"), ICON_NONE);

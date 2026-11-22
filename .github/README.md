@@ -167,7 +167,8 @@ continues across a floor made of several faces; walls get their own.
   a damaged floor.
 - **Placement:** scale, direction, offset and seed of the whole pattern; Weld Threshold drops
   the slivers at the edges.
-- **Texturing:** UVs per board (a full board spans 0 to 1) with random flip and offset,
+- **Texturing:** UVs per board (a full board spans 0 to 1) with a UV Rotation (90°: the
+  texture runs across the boards), random quarter turns, random flip and offset,
   `board_id` and `board_random` attributes per face (an Attribute node gives each board its own
   color, as MultiTexture does), and Random Materials over the first material slots.
 

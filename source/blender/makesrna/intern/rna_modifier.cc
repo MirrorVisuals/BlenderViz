@@ -8531,6 +8531,17 @@ static void rna_def_modifier_floor_generator(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "UV Map", "UV map written (a full size board spans 0 to 1); empty: none");
   RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  prop = RNA_def_property(srna, "uv_rotation", PROP_FLOAT, PROP_ANGLE);
+  RNA_def_property_ui_range(prop, -2.0 * M_PI, 2.0 * M_PI, 10, 3);
+  RNA_def_property_ui_text(prop,
+                           "UV Rotation",
+                           "Turn the UVs of every board around its middle (90 degrees: the "
+                           "texture runs across the board)");
+  RNA_def_property_update(prop, 0, "rna_Modifier_update");
+  def_flag("use_random_rotate_uv",
+           MOD_FLOORGEN_RANDOM_ROTATE_UV,
+           "Random UV Rotation",
+           "Turn the UVs of each board by a random quarter turn more");
   def_flag("use_random_flip_u",
            MOD_FLOORGEN_RANDOM_FLIP_U,
            "Random Flip U",

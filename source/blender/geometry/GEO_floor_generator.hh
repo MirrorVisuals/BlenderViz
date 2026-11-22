@@ -97,6 +97,10 @@ struct FloorGeneratorParams {
   bool random_flip_v = false;
   bool random_offset_u = false;
   bool random_offset_v = false;
+  /** Rotation of the UVs of every board around their middle (radians), and a random quarter turn
+   * more per board. */
+  float uv_rotation = 0.0f;
+  bool random_rotate_uv = false;
 
   /** Random material index per board, from 0 to count - 1 (1: the material of the face). */
   int material_count = 1;

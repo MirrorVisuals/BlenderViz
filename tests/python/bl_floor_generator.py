@@ -88,6 +88,42 @@ us = [d.uv.x for d in uv]
 check(min(us) > -0.01 and max(us) < 1.01, "UVs of a full board in 0..1")
 room.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh_clear()
 
+print("UV Rotation")
+
+
+def uvs(ob):
+    mesh = evaluated(ob)
+    result = [(d.uv.x, d.uv.y) for d in mesh.uv_layers["UVMap"].data]
+    ob.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh_clear()
+    return result
+
+
+def turned(uv, quarter_turns):
+    u, v = uv[0] - 0.5, uv[1] - 0.5
+    for _ in range(quarter_turns):
+        u, v = -v, u
+    return (0.5 + u, 0.5 + v)
+
+
+def close(a, b):
+    return abs(a[0] - b[0]) < 1e-4 and abs(a[1] - b[1]) < 1e-4
+
+
+straight = uvs(room)
+mod.uv_rotation = math.radians(90.0)
+quarter = uvs(room)
+check(len(quarter) == len(straight) and all(close(q, turned(s, 1)) for q, s in zip(quarter, straight)),
+      "UV Rotation 90: every board's UVs turn a quarter around their middle")
+mod.uv_rotation = 0.0
+mod.use_random_rotate_uv = True
+random_turns = uvs(room)
+turns = set()
+for r, s in zip(random_turns, straight):
+    match = [k for k in range(4) if close(r, turned(s, k))]
+    turns.add(match[0] if match else -1)
+check(-1 not in turns and len(turns) == 4, "Random UV Rotation: quarter turns, all four of them")
+mod.use_random_rotate_uv = False
+
 print("Herringbone: double herringbone has twice the boards of a pattern twice as wide")
 mod.pattern = 'HERRINGBONE'
 mod.parallel_boards = 2

@@ -1083,6 +1083,19 @@ Mesh *floor_generate(const Mesh &src, const FloorGeneratorParams &params, std::s
     const bool flip_v = params.random_flip_v && rnd(10) < 0.5f;
     const float off_u = params.random_offset_u ? rnd(12) : 0.0f;
     const float off_v = params.random_offset_v ? rnd(13) : 0.0f;
+    const float uv_angle = params.uv_rotation +
+                           (params.random_rotate_uv ?
+                                float(int(rnd(15) * 4.0f) % 4) * float(M_PI_2) :
+                                0.0f);
+    const float uv_cos = std::cos(uv_angle);
+    const float uv_sin = std::sin(uv_angle);
+    /* Turn the UVs around the middle of the board, then move them. */
+    auto place_uv = [&](const float u, const float v) {
+      const float x = u - 0.5f;
+      const float y = v - 0.5f;
+      return float2(0.5f + uv_cos * x - uv_sin * y + off_u,
+                    0.5f + uv_sin * x + uv_cos * y + off_v);
+    };
     int material = board.src_face >= 0 ? src_materials[board.src_face] : 0;
     if (params.material_count > 1) {
       material = std::min(int(rnd(14) * params.material_count), params.material_count - 1);
@@ -1103,7 +1116,7 @@ Mesh *floor_generate(const Mesh &src, const FloorGeneratorParams &params, std::s
       if (flip_v) {
         v = 1.0f - v;
       }
-      return float2(u + off_u, v + off_v);
+      return place_uv(u, v);
     };
     auto add_face = [&](const Span<int> face_verts, const Span<float2> face_uvs) {
       face_sizes.append(face_verts.size());
@@ -1163,7 +1176,7 @@ Mesh *floor_generate(const Mesh &src, const FloorGeneratorParams &params, std::s
       const float2 dir = len > 0.0f ? edge / len : board.axis;
       const float along = math::dot(outline[i] - board.center, dir);
       auto side_uv = [&](const float s, const float z) {
-        return float2(0.5f + (along + s) / board.uv_length + off_u, z / board.uv_width + off_v);
+        return place_uv(0.5f + (along + s) / board.uv_length, z / board.uv_width);
       };
       const std::array<int, 4> side = {
           bottom_start + i, bottom_start + j, ring_start + j, ring_start + i};
