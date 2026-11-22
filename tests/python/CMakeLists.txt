@@ -734,6 +734,11 @@ add_blender_test(
 )
 
 add_blender_test(
+  batch_render
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_batch_render.py
+)
+
+add_blender_test(
   geo_node_file_reporting
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_geo_node_file_reporting.py
   --

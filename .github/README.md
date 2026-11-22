@@ -11,8 +11,8 @@ An experimental fork of **Blender 5.2.3 LTS** that brings a 3ds Max style modifi
 Blender: editable modeling levels in the modifier stack, UVW Map and Unwrap modifiers, a solid
 Extrude Manifold, a Slice Plane, camera tilt correction, a V-Ray style frame buffer with
 interactive render and Light Mix, mesh and cylinder lights, quick sun caustics, architectural
-sections, decals, 3ds Max style spline drawing (Max Line), a floor generator, and a few more
-rendering extras, for architectural visualization. Branch: `edit-poly-stack`.
+sections, decals, 3ds Max style spline drawing (Max Line), a floor generator, a batch camera
+renderer, and a few more rendering extras, for architectural visualization. Branch: `edit-poly-stack`.
 Experimental and unofficial: not affiliated with the Blender Foundation.
 
 What is different from Blender 5.2.3
@@ -230,6 +230,25 @@ The Image Editor header (also the render window) gets the controls of the V-Ray 
 - **Resolution %** menu, **Region** render (draw the region on the image: only it renders, the
   rest keeps the previous render) and a **Render** button.
 - No black frame between one render and the next, and the display refreshes as in the viewport.
+
+### Batch Camera Renderer
+
+Render setups rendered one after the other: 3D Viewport sidebar > Batch Render, Render >
+Batch Camera Renderer, or Render Properties. Built in from the Batch Camera Renderer add-on
+(files made with it keep their setups; the add-on is no longer loaded and can be removed).
+
+- **Per setup:** camera, view layer, world, single frame or animation, aspect ratio and
+  resolution presets, and objects to exclude. Selecting a setup shows it in the viewport.
+- **Collections:** a checklist of all collections of the scene. Unchecked ones are not
+  rendered in that setup (nor their child collections) and are hidden in the viewport while
+  the setup is active. Shift-click keeps only that collection. No extra view layers needed.
+- **Light Mix:** a Light Mix setup saved in the file, or a `.json` exported from Light Mix,
+  applied to the setup's view layer for its render (and shown when the setup is selected).
+  The mix of the view layer is put back after the batch.
+- **Output:** a folder with optional setup, date and view layer sub-folders, file names with
+  the setup, camera and view layer, and Save Passes (a file per pass, or a multilayer EXR).
+- Duplicate, reorder and hide setups; the batch renders the visible ones and shows the status
+  of each. From a script, `bpy.ops.bcr.batch_render()` renders them without a window.
 
 ### Cycles: Light Mix, as V-Ray LightMix
 

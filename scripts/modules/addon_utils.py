@@ -338,6 +338,12 @@ def _addon_remove(module_name):
 # BlenderViz: extension ID -> the built-in module that replaces it.
 _builtin_extensions = {
     "maxline": "Max Line, scripts/startup/viz_maxline.py",
+    "batch_camera_renderer": "Batch Camera Renderer, scripts/startup/viz_batch_render.py",
+}
+
+# BlenderViz: legacy add-ons that are now built in.
+_builtin_addons = {
+    "batch_camera_renderer": "Batch Camera Renderer, scripts/startup/viz_batch_render.py",
 }
 
 
@@ -377,6 +383,11 @@ def enable(module_name, *, default_set=False, persistent=False, refresh_handled=
                     return
             import traceback
             traceback.print_exc()
+
+    if module_name in _builtin_addons:
+        print("Add-on {:s} is built into BlenderViz ({:s}), not loading it: it can be removed".format(
+            module_name, _builtin_addons[module_name]))
+        return None
 
     if (is_extension := module_name.startswith(_ext_base_pkg_idname_with_dot)):
         # BlenderViz: extensions that are now built in. Loading them as well would register the
