@@ -581,22 +581,53 @@ bool GPUDevice::load_image_info(DeviceQueue *queue)
 {
   /* Note image_info is never host mapped, and load_image_info() should only
    * be called right before kernel enqueue when all memory operations have completed. */
-  if (need_image_info) {
-    /* If the host buffer was grown with host_only_resize() while a kernel was reading the old
-     * device buffer, we now free and reallocate it. */
-    if (image_info.device_size < image_info.memory_size()) {
-      generic_free(image_info);
-    }
-    if (queue) {
-      queue->copy_to_device(image_info);
-    }
-    else {
-      image_info.copy_to_device();
+
+  /* Guard against concurrent #GPUDevice::image_info_update() resizes. */
+  const thread_scoped_lock resize_lock(image_info_resize_mutex);
+
+  {
+    /* Clear the flag before copying and under a lock, multiple GPU host threads
+     * may call this function in parallel. */
+    const thread_scoped_lock lock(image_info_mutex);
+    if (!need_image_info) {
+      return false;
     }
     need_image_info = false;
-    return true;
   }
-  return false;
+
+  /* If the host buffer was grown with host_only_resize() while a kernel was reading the old
+   * device buffer, we now free and reallocate it. */
+  if (image_info.device_size < image_info.memory_size()) {
+    generic_free(image_info);
+  }
+  if (queue) {
+    queue->copy_to_device(image_info);
+  }
+  else {
+    image_info.copy_to_device();
+  }
+  return true;
+}
+
+void GPUDevice::image_info_update(const uint image_info_id, const KernelImageInfo &info)
+{
+  thread_scoped_lock lock(image_info_mutex);
+
+  if (image_info_id >= image_info.size()) {
+    /* Wait for GPUDevice::load_image_info() to finish copying. */
+    lock.unlock();
+    const thread_scoped_lock resize_lock(image_info_resize_mutex);
+    lock.lock();
+
+    if (image_info_id >= image_info.size()) {
+      /* Geometric growth to amortize reallocation cost. */
+      const size_t new_size = max(size_t(image_info_id) + 128, image_info.size() * 2);
+      image_info.host_only_resize(new_size);
+    }
+  }
+
+  image_info[image_info_id] = info;
+  need_image_info = true;
 }
 
 void GPUDevice::init_host_memory(const size_t preferred_texture_headroom,
@@ -727,7 +758,7 @@ GPUDevice::Mem *GPUDevice::generic_alloc(device_memory &mem, const size_t pitch_
    * an exception for image info. It is small and frequently accessed,
    * so treat it as working memory.
    *
-   * If there is not enough room for working memory, we will try to move
+   * If there is not enough room for other working memory, we will try to move
    * textures to host memory, assuming the performance impact would have
    * been worse for working memory. */
   const bool is_texture = (mem.type == MEM_IMAGE_TEXTURE || mem.type == MEM_GLOBAL) &&
@@ -736,8 +767,15 @@ GPUDevice::Mem *GPUDevice::generic_alloc(device_memory &mem, const size_t pitch_
 
   const size_t headroom = (is_texture) ? device_image_headroom : device_working_headroom;
 
-  /* Move textures to host memory if needed. */
-  if (!mem.move_to_host && !is_image && can_map_host) {
+  const bool no_host_fallback = (mem.type == MEM_DEVICE_ONLY) ||
+                                (mem.flags & MEM_FLAG_NO_HOST_FALLBACK);
+
+  /* Move textures to host memory if needed.
+   *
+   * Not for image_info, it's reallocated right before kernel enqueue while
+   * other devices may be using the textures. Without host fallback it may use
+   * the working memory headroom, which is much larger than image_info. */
+  if (!mem.move_to_host && !is_image && can_map_host && &mem != &image_info) {
     move_textures_to_host(size, headroom, is_texture);
   }
 
@@ -746,7 +784,7 @@ GPUDevice::Mem *GPUDevice::generic_alloc(device_memory &mem, const size_t pitch_
   get_device_memory_info(total, free);
 
   /* Allocate in device memory. */
-  if ((!mem.move_to_host && (size + headroom) < free) || (mem.type == MEM_DEVICE_ONLY)) {
+  if ((!mem.move_to_host && (size + headroom) < free) || no_host_fallback) {
     mem_alloc_result = alloc_device(device_pointer, size);
     if (mem_alloc_result) {
       device_mem_in_use += size;
@@ -758,7 +796,7 @@ GPUDevice::Mem *GPUDevice::generic_alloc(device_memory &mem, const size_t pitch_
 
   void *shared_pointer = nullptr;
 
-  if (!mem_alloc_result && can_map_host && mem.type != MEM_DEVICE_ONLY) {
+  if (!mem_alloc_result && can_map_host && !no_host_fallback) {
     if (mem.shared_pointer) {
       /* Another device already allocated host memory. */
       mem_alloc_result = true;
@@ -780,7 +818,7 @@ GPUDevice::Mem *GPUDevice::generic_alloc(device_memory &mem, const size_t pitch_
   }
 
   if (!mem_alloc_result) {
-    if (mem.type == MEM_DEVICE_ONLY) {
+    if (no_host_fallback) {
       status = " failed, out of device memory";
       set_error("System is out of GPU memory");
     }

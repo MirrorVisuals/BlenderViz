@@ -6,6 +6,8 @@
  * \ingroup ply
  */
 
+#include <charconv>
+
 #include "BKE_context.hh"
 #include "BKE_layer.hh"
 #include "BKE_library.hh"
@@ -123,6 +125,9 @@ const char *read_header(PlyReadBuffer &file, PlyHeader &r_header)
       else if (parse_keyword(line, "binary_little_endian")) {
         r_header.type = PlyFormatType::BINARY_LE;
       }
+      else {
+        return "Unknown format.";
+      }
     }
     else if (parse_keyword(line, "element")) {
       PlyElement element;
@@ -132,18 +137,32 @@ const char *read_header(PlyReadBuffer &file, PlyHeader &r_header)
       element.name = std::string(word.data(), word.size());
       skip_space(line);
       word = parse_word(line);
-      element.count = std::stoi(std::string(word.data(), word.size()));
+      const std::from_chars_result res = std::from_chars(word.begin(), word.end(), element.count);
+      if (res.ec != std::errc() || res.ptr != word.end() || element.count < 0) {
+        return "Invalid element count.";
+      }
       r_header.elements.append(element);
     }
     else if (parse_keyword(line, "property")) {
+      if (r_header.elements.is_empty()) {
+        return "Property without element.";
+      }
       PlyProperty property;
+      bool unknown_count_type = false;
       skip_space(line);
       if (parse_keyword(line, "list")) {
         skip_space(line);
         property.count_type = type_from_string(parse_word(line));
+        unknown_count_type = property.count_type == PlyDataTypes::NONE;
       }
       skip_space(line);
       property.type = type_from_string(parse_word(line));
+      if (unknown_count_type) {
+        /* Still a list, but of unknown type. So it can't be read from binary files,
+         * like other unknown types, while ASCII files don't need the type. */
+        property.count_type = PlyDataTypes::UINT;
+        property.type = PlyDataTypes::NONE;
+      }
       skip_space(line);
       word = parse_word(line);
       property.name = std::string(word.data(), word.size());
@@ -169,32 +188,54 @@ const char *read_header(PlyReadBuffer &file, PlyHeader &r_header)
 
 static Mesh *read_ply_to_mesh(const PLYImportParams &import_params, const char *ob_name)
 {
-  /* Parse header. */
-  PlyReadBuffer file(import_params.filepath, 64 * 1024);
+  std::unique_ptr<PlyData> data;
+  try {
+    /* Parse header. */
+    PlyReadBuffer file(import_params.filepath, 64 * 1024);
 
-  PlyHeader header;
-  const char *err = read_header(file, header);
-  if (err != nullptr) {
-    CLOG_ERROR(&LOG, "PLY Importer: %s: %s", ob_name, err);
-    BKE_reportf(import_params.reports, RPT_ERROR, "PLY Importer: %s: %s", ob_name, err);
-    return nullptr;
-  }
+    PlyHeader header;
+    const char *err = read_header(file, header);
+    if (err != nullptr) {
+      CLOG_ERROR(&LOG, "PLY Importer: %s: %s", ob_name, err);
+      BKE_reportf(import_params.reports, RPT_ERROR, "PLY Importer: %s: %s", ob_name, err);
+      return nullptr;
+    }
 
-  /* Parse actual file data. */
-  std::unique_ptr<PlyData> data = import_ply_data(file, header);
-  if (data == nullptr) {
-    CLOG_ERROR(&LOG, "PLY Importer: failed importing %s, unknown error", ob_name);
-    BKE_report(import_params.reports, RPT_ERROR, "PLY Importer: failed importing, unknown error");
-    return nullptr;
+    /* Parse actual file data. */
+    data = import_ply_data(file, header);
+    if (data == nullptr) {
+      CLOG_ERROR(&LOG, "PLY Importer: failed importing %s, unknown error", ob_name);
+      BKE_report(
+          import_params.reports, RPT_ERROR, "PLY Importer: failed importing, unknown error");
+      return nullptr;
+    }
+    if (!data->error.empty()) {
+      CLOG_ERROR(&LOG, "PLY Importer: failed importing %s: %s", ob_name, data->error.c_str());
+      BKE_reportf(import_params.reports,
+                  RPT_ERROR,
+                  "PLY Importer: failed importing %s: %s",
+                  ob_name,
+                  data->error.c_str());
+      return nullptr;
+    }
+    if (!data->warning.empty()) {
+      CLOG_WARN(&LOG, "PLY Importer: %s: %s", ob_name, data->warning.c_str());
+      BKE_reportf(import_params.reports,
+                  RPT_WARNING,
+                  "PLY Importer: %s: %s",
+                  ob_name,
+                  data->warning.c_str());
+    }
+    if (data->vertices.is_empty()) {
+      CLOG_ERROR(&LOG, "PLY Importer: file %s contains no vertices", ob_name);
+      BKE_report(import_params.reports, RPT_ERROR, "PLY Importer: failed importing, no vertices");
+      return nullptr;
+    }
   }
-  if (!data->error.empty()) {
-    CLOG_ERROR(&LOG, "PLY Importer: failed importing %s: %s", ob_name, data->error.c_str());
-    BKE_report(import_params.reports, RPT_ERROR, "PLY Importer: failed importing, unknown error");
-    return nullptr;
-  }
-  if (data->vertices.is_empty()) {
-    CLOG_ERROR(&LOG, "PLY Importer: file %s contains no vertices", ob_name);
-    BKE_report(import_params.reports, RPT_ERROR, "PLY Importer: failed importing, no vertices");
+  catch (const std::exception &ex) {
+    /* Read buffer errors for malformed files, or allocation failure for huge counts. */
+    CLOG_ERROR(&LOG, "PLY Importer: %s: %s", ob_name, ex.what());
+    BKE_reportf(import_params.reports, RPT_ERROR, "PLY Importer: %s: %s", ob_name, ex.what());
     return nullptr;
   }
 

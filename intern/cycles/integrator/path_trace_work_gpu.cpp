@@ -82,19 +82,28 @@ PathTraceWorkGPU::PathTraceWorkGPU(Device *device,
     : PathTraceWork(device, film, device_scene, cancel_requested_flag),
       queue_(device->gpu_queue_create()),
       integrator_state_soa_kernel_features_(0),
-      integrator_queue_counter_(device, "integrator_queue_counter", MEM_READ_WRITE),
-      integrator_shader_sort_counter_(device, "integrator_shader_sort_counter", MEM_READ_WRITE),
-      integrator_shader_raytrace_sort_counter_(
-          device, "integrator_shader_raytrace_sort_counter", MEM_READ_WRITE),
+      /* Use MEM_FLAG_NO_HOST_FALLBACK since having this on the GPU is more important
+       * than scene memory for performance. */
+      integrator_queue_counter_(
+          device, "integrator_queue_counter", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
+      integrator_shader_sort_counter_(
+          device, "integrator_shader_sort_counter", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
+      integrator_shader_raytrace_sort_counter_(device,
+                                               "integrator_shader_raytrace_sort_counter",
+                                               MEM_READ_WRITE,
+                                               MEM_FLAG_NO_HOST_FALLBACK),
       integrator_shader_sort_prefix_sum_(
-          device, "integrator_shader_sort_prefix_sum", MEM_READ_WRITE),
-      integrator_shader_sort_partition_key_offsets_(
-          device, "integrator_shader_sort_partition_key_offsets", MEM_READ_WRITE),
-      integrator_next_main_path_index_(device, "integrator_next_main_path_index", MEM_READ_WRITE),
+          device, "integrator_shader_sort_prefix_sum", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
+      integrator_shader_sort_partition_key_offsets_(device,
+                                                    "integrator_shader_sort_partition_key_offsets",
+                                                    MEM_READ_WRITE,
+                                                    MEM_FLAG_NO_HOST_FALLBACK),
+      integrator_next_main_path_index_(
+          device, "integrator_next_main_path_index", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
       integrator_next_shadow_path_index_(
-          device, "integrator_next_shadow_path_index", MEM_READ_WRITE),
-      queued_paths_(device, "queued_paths", MEM_READ_WRITE),
-      num_queued_paths_(device, "num_queued_paths", MEM_READ_WRITE),
+          device, "integrator_next_shadow_path_index", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
+      queued_paths_(device, "queued_paths", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
+      num_queued_paths_(device, "num_queued_paths", MEM_READ_WRITE, MEM_FLAG_NO_HOST_FALLBACK),
       work_tiles_(device, "work_tiles", MEM_READ_WRITE),
       display_rgba_half_(device, "display buffer half", MEM_READ_WRITE),
       max_num_paths_(0),
@@ -259,6 +268,10 @@ void PathTraceWorkGPU::alloc_integrator_sorting()
     }
     integrator_state_gpu_.sort_partition_key_offsets =
         (int *)integrator_shader_sort_partition_key_offsets_.device_pointer;
+
+    integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE] = nullptr;
+    integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE] =
+        nullptr;
   }
   else {
     /* Allocate arrays for shader sorting. */
@@ -266,21 +279,21 @@ void PathTraceWorkGPU::alloc_integrator_sorting()
     if (integrator_shader_sort_counter_.size() < sort_buckets) {
       integrator_shader_sort_counter_.alloc(sort_buckets);
       integrator_shader_sort_counter_.zero_to_device();
-      integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE] =
-          (int *)integrator_shader_sort_counter_.device_pointer;
 
       integrator_shader_sort_prefix_sum_.alloc(sort_buckets);
       integrator_shader_sort_prefix_sum_.zero_to_device();
     }
 
-    if (device_scene_->data.kernel_features & KERNEL_FEATURE_NODE_RAYTRACE) {
-      if (integrator_shader_raytrace_sort_counter_.size() < sort_buckets) {
-        integrator_shader_raytrace_sort_counter_.alloc(sort_buckets);
-        integrator_shader_raytrace_sort_counter_.zero_to_device();
-        integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE] =
-            (int *)integrator_shader_raytrace_sort_counter_.device_pointer;
-      }
+    const bool use_raytrace = device_scene_->data.kernel_features & KERNEL_FEATURE_NODE_RAYTRACE;
+    if (use_raytrace && integrator_shader_raytrace_sort_counter_.size() < sort_buckets) {
+      integrator_shader_raytrace_sort_counter_.alloc(sort_buckets);
+      integrator_shader_raytrace_sort_counter_.zero_to_device();
     }
+
+    integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE] =
+        (int *)integrator_shader_sort_counter_.device_pointer;
+    integrator_state_gpu_.sort_key_counter[DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE] =
+        (use_raytrace) ? (int *)integrator_shader_raytrace_sort_counter_.device_pointer : nullptr;
   }
 }
 
@@ -1242,6 +1255,10 @@ void PathTraceWorkGPU::cryptomatte_postproces()
 
 void PathTraceWorkGPU::denoise_volume_guiding_buffers()
 {
+  if (effective_buffer_params_.width == 0 || effective_buffer_params_.height == 0) {
+    return;
+  }
+
   const DeviceKernelArguments args(&buffers_->buffer.device_pointer,
                                    &effective_buffer_params_.full_x,
                                    &effective_buffer_params_.full_y,
