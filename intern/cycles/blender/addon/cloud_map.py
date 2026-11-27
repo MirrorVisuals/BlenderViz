@@ -516,13 +516,29 @@ def image_pixels(image, max_width=8192):
     return px
 
 
+def put_second_layer(image, opacity):
+    """Store `opacity` as the second layer (blue) of the cloud map `image`, resampled to its size."""
+    w, h = image.size
+    buf = np.empty(w * h * 4, dtype=np.float32)
+    image.pixels.foreach_get(buf)
+    px = buf.reshape(h, w, 4)
+    if opacity.shape != (h, w):
+        opacity = _upsample(opacity.astype(np.float32), (h, w))
+    px[..., 2] = np.clip(opacity, 0.0, 1.0)
+    image.pixels.foreach_set(px.ravel())
+    image.pack()
+    image.update()
+    return image
+
+
 def auto_size(width):
     """Cloud map size for an HDRI `width` pixels wide: 8192 (about 45 pixels per degree, the
     detail of a 16K HDRI), larger never (the memory when rendering)."""
     return 8192
 
 
-def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fade=7.0):
+def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fade=7.0,
+                   layer2_of=None):
     """New Blender image (packed into the file) with the cloud map of an equirectangular HDRI.
     8 bits per channel: plenty for opacity and shading, and a quarter of the memory of floats."""
     import bpy
@@ -533,6 +549,8 @@ def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fad
     data = cloud_map_from_equirectangular(pixels, size=size, rotation=rotation,
                                           horizon_fade=horizon_fade)
     del pixels
+    if layer2_of is not None:
+        return put_second_layer(layer2_of, data[..., 0])
     name = name or "Clouds " + source_image.name
     image = bpy.data.images.new(name, size, size, alpha=False, float_buffer=False,
                                 is_data=True)
@@ -553,6 +571,14 @@ def _sat_pyramid(img, levels):
         h, w = (a.shape[0] // 2) * 2, (a.shape[1] // 2) * 2
         pyr.append(a[:h, :w].reshape(h // 2, 2, w // 2, 2).mean(axis=(1, 3)))
     return pyr
+
+def _sat_hash(i, j, k):
+    """Random 0..1 per integer cell."""
+    h = (i.astype(np.int64) * 73856093) ^ (j.astype(np.int64) * 19349663) ^ (k * 83492791)
+    h = (h ^ (h >> 13)) * 1274126177
+    h = h ^ (h >> 16)
+    return (h & 0xFFFFFF).astype(np.float64) / float(0xFFFFFF)
+
 
 def _sat_mirror(u):
     """Mirrored repeat of 0..1 (so the map tiles without seams)."""
@@ -580,6 +606,35 @@ def cirrus_opacity_from_band(c):
     # A soft top, as for the photos: even thick cirrus lets a little sky through.
     return np.where(op < 0.7, op, 0.7 + 0.25 * np.tanh((op - 0.7) / 0.25))
 
+def sharpen_cirrus(op, band10, visible, pixel_m):
+    """Sharper cirrus: band 10 is measured at 60 m, the visible bands at 10 m. Band 10 says where
+    the cirrus is (not the sea, not the low clouds); the visible bands add the finer fibres inside
+    it. Cumulus (bright in the visible, hardly there in band 10) and their shadows are left out."""
+    sea = np.percentile(visible, 15)
+    ex = np.maximum(visible - sea, 0.0)
+    ratio = band10 / np.maximum(ex, 1e-4)
+    cumulus = _smoothstep(0.03, 0.08, ex) * (1.0 - _smoothstep(0.06, 0.15, ratio))
+    cumulus = np.clip(_blur(cumulus, 4) * 6.0, 0.0, 1.0)
+    keep = 1.0 - cumulus
+    r = max(1, int(round(90.0 / pixel_m)))
+    base = _blur(ex * keep, r) / np.maximum(_blur(keep, r), 1e-3)
+    filled = ex * keep + base * cumulus
+    detail = _blur((filled + 0.004) / (base + 0.004), 1)
+    w = _smoothstep(0.02, 0.2, op)
+    gain = 1.0 + w * (np.clip(detail, 0.75, 2.5) ** 0.8 - 1.0)
+    return np.clip(op * gain, 0.0, 1.0).astype(np.float32)
+
+
+def find_satellite_band(path, band):
+    """The image of another band next to `path` (same folder, name containing the band)."""
+    import os
+    folder = os.path.dirname(path)
+    for name in sorted(os.listdir(folder)):
+        if band in name.upper() and name.lower().endswith(('.tif', '.tiff')):
+            return os.path.join(folder, name)
+    return None
+
+
 def cloud_map_from_planar(op_src, pixel_m, size=2048, altitude_m=9000.0, rotation=0.0,
                           horizon_fade=3.0, shading_src=None):
     """Fisheye cloud map (as from the photos) of a top-down map of a cloud layer at altitude_m:
@@ -606,19 +661,40 @@ def cloud_map_from_planar(op_src, pixel_m, size=2048, altitude_m=9000.0, rotatio
         t = np.where(a < 1e-12, alt / np.maximum(dz, 1e-6), t)
         ground = t * np.sin(theta)
         px = ground * np.cos(phi); py = ground * np.sin(phi)
-        u = 0.5 + px / width_km
-        v = 0.5 + py / height_km
         # footprint of a map pixel on the layer (km), stretched along the view toward the horizon
         foot = t * pixel_angle / np.maximum(dz + 0.02, 0.02)
         level = np.clip(np.log2(np.maximum(foot / (pixel_m / 1000.0), 1e-6)), 0, len(pyr) - 1.001)
         l0 = np.floor(level).astype(int); fl = level - l0
+        # Beyond the map: patches of it, each from another place in it, blended softly (no
+        # mirror lines, no exact repeat; the clouds keep their direction). Overhead: the map.
+        cell = 0.33 * min(width_km, height_km)
+        reach_x = max(0.5 * width_km - cell, 0.0)
+        reach_y = max(0.5 * height_km - cell, 0.0)
+        gx, gy = px / cell, py / cell
+        ix, iy = np.floor(gx).astype(np.int64), np.floor(gy).astype(np.int64)
         res = np.zeros_like(X)
-        for L in range(len(pyr) - 1):
-            m = l0 == L
-            if not m.any():
-                continue
-            a0 = _sat_sample(pyr[L], u[m], v[m]); a1 = _sat_sample(pyr[L + 1], u[m], v[m])
-            res[m] = a0 * (1 - fl[m]) + a1 * fl[m]
+        wsum = np.zeros_like(X)
+        for dx in (0, 1):
+            for dy in (0, 1):
+                cx, cy = ix + dx, iy + dy
+                w = (1.0 - np.abs(gx - cx)) * (1.0 - np.abs(gy - cy))
+                w = np.maximum(w, 0.0) ** 2
+                centre = (cx == 0) & (cy == 0)
+                ox = np.where(centre, 0.0, (_sat_hash(cx, cy, 1) * 2 - 1) * reach_x)
+                oy = np.where(centre, 0.0, (_sat_hash(cx, cy, 2) * 2 - 1) * reach_y)
+                u = 0.5 + (px - cx * cell + ox) / width_km
+                v = 0.5 + (py - cy * cell + oy) / height_km
+                val = np.zeros_like(X)
+                for L in range(len(pyr) - 1):
+                    m = l0 == L
+                    if not m.any():
+                        continue
+                    a0 = _sat_sample(pyr[L], u[m], v[m])
+                    a1 = _sat_sample(pyr[L + 1], u[m], v[m])
+                    val[m] = a0 * (1 - fl[m]) + a1 * fl[m]
+                res += val * w
+                wsum += w
+        res /= np.maximum(wsum, 1e-6)
         el = 90.0 - np.degrees(theta)
         res *= _smoothstep(0.0, horizon_fade, el)
         res[~inside] = 0
@@ -628,18 +704,35 @@ def cloud_map_from_planar(op_src, pixel_m, size=2048, altitude_m=9000.0, rotatio
 
 
 def make_cloud_map_from_satellite(band_image, pixel_m=20.0, name=None, size=8192,
-                                  altitude_m=9000.0, rotation=0.0):
+                                  altitude_m=9000.0, rotation=0.0, layer2_of=None):
     """New Blender image (packed) with the cirrus of a Sentinel-2 band 10 image (the cirrus band),
     laid out over the sky at altitude_m."""
     import bpy
 
-    w, h = band_image.size
-    buf = np.empty(w * h * 4, dtype=np.float32)
-    band_image.pixels.foreach_get(buf)
-    band = buf.reshape(h, w, 4)[..., 0].copy()
-    del buf
+    def read(image):
+        w, h = image.size
+        buf = np.empty(w * h * 4, dtype=np.float32)
+        image.pixels.foreach_get(buf)
+        return buf.reshape(h, w, 4)[..., 0].copy()
+
+    band = read(band_image)
     op = cirrus_opacity_from_band(band)
+    # The visible bands next to it, if they are there: finer detail.
+    path = bpy.path.abspath(band_image.filepath)
+    visible = []
+    for name in ('B03', 'B04'):
+        other = find_satellite_band(path, name)
+        if other:
+            image = bpy.data.images.load(other)
+            image.colorspace_settings.is_data = True
+            if tuple(image.size) == tuple(band_image.size):
+                visible.append(read(image))
+            bpy.data.images.remove(image)
+    if visible:
+        op = sharpen_cirrus(op, band, sum(visible) / len(visible), pixel_m)
     data = cloud_map_from_planar(op, pixel_m, size=size, altitude_m=altitude_m, rotation=rotation)
+    if layer2_of is not None:
+        return put_second_layer(layer2_of, data[..., 0])
     rgba = np.zeros((size, size, 4), dtype=np.float32)
     rgba[..., :2] = data
     rgba[..., 3] = 1.0

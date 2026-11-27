@@ -91,6 +91,7 @@ static void node_shader_buts_tex_sky(ui::Layout &layout, bContext *C, PointerRNA
         /* Clouds from a photo. */
         ui::Layout &col = layout.column(true);
         col.prop(ptr, "cloud_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+        col.prop(ptr, "cloud_density2", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         col.prop(ptr, "cloud_map_shading", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         col.prop(ptr, "cloud_direction", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
         ui::Layout &col2 = layout.column(true);
@@ -157,6 +158,7 @@ static void node_shader_init_tex_sky(bNodeTree * /*ntree*/, bNode *node)
   tex->cumulus_altitude = 1500.0f;
   tex->cumulus_thickness = 2200.0f;
   tex->cumulus_density = 1.0f;
+  tex->cloud_density2 = 1.0f;
   node->storage = tex;
 }
 

@@ -5561,6 +5561,16 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
                            "instead of clean cut-outs");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
+  prop = RNA_def_property(srna, "cloud_density2", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_range(prop, 0.0f, 10.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 4.0f, 10, 2);
+  RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_ui_text(prop,
+                           "Layer 2 Density",
+                           "With a cloud map: thickness of its second layer (for example "
+                           "cirrocumulus added to cirrus), mixed with the first");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
   /* BlenderViz: cumulus clouds. */
   prop = RNA_def_property(srna, "use_cumulus", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "use_cumulus", 1);

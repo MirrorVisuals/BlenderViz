@@ -316,6 +316,16 @@ ccl_device_inline float2 cirrus_map_uv(const ccl_global SVMNodeTexSkyCloudsData 
   return make_float2(0.5f + x * k, 0.5f + y * k);
 }
 
+/* Opacity of the cloud map's two layers together (red and blue), each with its own thickness:
+ * transmittances multiply. */
+ccl_device_inline float cirrus_map_opacity(const ccl_global SVMNodeTexSkyCloudsData &c,
+                                           const float4 m)
+{
+  const float t1 = (c.layer1 > 0.0f) ? powf(1.0f - saturatef(m.x), c.layer1) : 1.0f;
+  const float t2 = (c.layer2 > 0.0f) ? powf(1.0f - saturatef(m.z), c.layer2) : 1.0f;
+  return 1.0f - t1 * t2;
+}
+
 /* Clouds from a cloud map, made from a photo of real clouds: their shapes (with the perspective of
  * the photo), lit by this sky's sun. */
 ccl_device float3 sky_cirrus_map(KernelGlobals kg,
@@ -330,7 +340,7 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
   const float4 m = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir)));
   /* Photos are unreliable right at the horizon (haze, land): fade out there. */
   const float horizon = cirrus_smoothstep(0.0f, 0.04f, dir.z);
-  float a = saturatef(m.x) * horizon;
+  float a = cirrus_map_opacity(c, m) * horizon;
 
   /* The edges of the clouds: the map around this point (a ring of samples) tells where they are
    * (the opacity changes fast there) and softens them into a gradual falloff. */
@@ -356,7 +366,7 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
       const float r = outer ? radius : 0.5f * radius;
       const float3 d = normalize(dir + (tu * cosf(angle) + tv * sinf(angle)) * r);
       const float4 ms = kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, d)));
-      const float s = saturatef(ms.x) * horizon;
+      const float s = cirrus_map_opacity(c, ms) * horizon;
       const float w = outer ? 0.6f : 1.0f;
       sum += s * w;
       sum_shade += ms.y * w;
@@ -449,8 +459,8 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
     }
     else {
       const float3 dir_sun = normalize(dir + toward * (0.006f / toward_len));
-      a_sun = saturatef(
-          kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir_sun))).x);
+      a_sun = cirrus_map_opacity(
+          c, kernel_image_interp(kg, sd, c.map_id, dual2(cirrus_map_uv(c, dir_sun))));
     }
     relief = clamp(1.0f + 2.0f * (a - a_sun), 0.6f, 1.3f);
   }

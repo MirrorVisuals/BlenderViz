@@ -842,6 +842,9 @@ struct SVMNodeTexSkyCloudsData {
   /* Cloud edges: gradual falloff (0..1) and noise only along them (0..1). */
   float edge_softness;
   float edge_detail;
+  /* Cloud map: optical thickness of its two layers (opacity in red and in blue). */
+  float layer1;
+  float layer2;
 };
 static_assert(alignof(SVMNodeTexSkyCloudsData) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSkyCloudsData) % sizeof(uint) == 0);

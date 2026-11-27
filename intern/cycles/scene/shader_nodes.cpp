@@ -998,7 +998,8 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
       .altitude = h,
       .earth_radius = 6360.0f + eye,
       .amount = cloud_amount,
-      .density = cloud_density,
+      /* With a map the density is per layer (`layer1`, `layer2`). */
+      .density = cloud_handle.empty() ? cloud_density : 1.0f,
       .direction = cloud_direction,
       .scale = max(cloud_scale, 0.01f),
       .turbulence = cloud_turbulence,
@@ -1016,6 +1017,8 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
       .detail = clamp(cloud_detail, 0.0f, 1.0f),
       .edge_softness = clamp(cloud_edge_softness, 0.0f, 1.0f),
       .edge_detail = clamp(cloud_edge_detail, 0.0f, 1.0f),
+      .layer1 = max(cloud_density, 0.0f),
+      .layer2 = max(cloud_density2, 0.0f),
   };
 }
 
@@ -1113,6 +1116,7 @@ NODE_DEFINE(SkyTextureNode)
   SOCKET_FLOAT(cloud_detail, "Cloud Detail", 0.3f);
   SOCKET_FLOAT(cloud_edge_softness, "Cloud Edge Softness", 0.5f);
   SOCKET_FLOAT(cloud_edge_detail, "Cloud Edge Detail", 0.5f);
+  SOCKET_FLOAT(cloud_density2, "Cloud Density 2", 1.0f);
   /* BlenderViz: cumulus clouds. */
   SOCKET_BOOLEAN(use_cumulus, "Cumulus", false);
   SOCKET_FLOAT(cumulus_coverage, "Cumulus Coverage", 0.4f);
@@ -1214,7 +1218,9 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
 
   const bool nishita = sky_type == NODE_SKY_SINGLE_SCATTERING ||
                        sky_type == NODE_SKY_MULTIPLE_SCATTERING;
-  const bool clouds = use_clouds && cloud_density > 0.0f && nishita;
+  const bool clouds = use_clouds &&
+                      (cloud_density > 0.0f || (!cloud_handle.empty() && cloud_density2 > 0.0f)) &&
+                      nishita;
   const bool cumulus = use_cumulus && cumulus_density > 0.0f && cumulus_coverage > 0.0f &&
                        nishita;
   if (cumulus && cumulus_handle.empty()) {

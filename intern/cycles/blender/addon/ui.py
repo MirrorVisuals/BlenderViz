@@ -1951,6 +1951,13 @@ class CYCLES_OT_world_cloud_map_from_hdri(Operator):
         name="Rotation", subtype='ANGLE',
         description="Turn the clouds of the HDRI around the zenith",
     )
+    layer: bpy.props.EnumProperty(
+        name="Layer",
+        items=(('1', "New Map", "A new cloud map (its first layer)"),
+               ('2', "Layer 2", "The second layer of the current cloud map, with its own density "
+                "(for example cirrocumulus added to cirrus)")),
+        default='1',
+    )
 
     @classmethod
     def poll(cls, context):
@@ -1974,14 +1981,21 @@ class CYCLES_OT_world_cloud_map_from_hdri(Operator):
                 self.report({'ERROR'}, "Not an equirectangular HDRI (2:1)")
                 return {'CANCELLED'}
             name = "Clouds " + os.path.splitext(os.path.basename(self.filepath))[0]
+            sky = world_sky_node(context_world(context))
+            layer2_of = sky.cloud_map if self.layer == '2' else None
+            if self.layer == '2' and layer2_of is None:
+                self.report({'ERROR'}, "Make or choose the first cloud map first")
+                return {'CANCELLED'}
             image = cloud_map.make_cloud_map(source, name=name, size=int(self.size),
-                                             rotation=self.rotation)
+                                             rotation=self.rotation, layer2_of=layer2_of)
         finally:
             if source.name not in existing and source.users == 0:
                 bpy.data.images.remove(source)
         sky = world_sky_node(context_world(context))
         sky.cloud_map = image
         sky.cloud_scale = 5.0
+        if self.layer == '2' and sky.cloud_density2 == 0.0:
+            sky.cloud_density2 = 1.0
         sky.use_clouds = True
         return {'FINISHED'}
 
@@ -2011,6 +2025,13 @@ class CYCLES_OT_world_cloud_map_from_satellite(Operator):
         name="Rotation", subtype='ANGLE',
         description="Turn the clouds of the satellite image around the zenith",
     )
+    layer: bpy.props.EnumProperty(
+        name="Layer",
+        items=(('1', "New Map", "A new cloud map (its first layer)"),
+               ('2', "Layer 2", "The second layer of the current cloud map, with its own density "
+                "(for example cirrocumulus added to cirrus)")),
+        default='1',
+    )
 
     @classmethod
     def poll(cls, context):
@@ -2033,14 +2054,20 @@ class CYCLES_OT_world_cloud_map_from_satellite(Operator):
             source.colorspace_settings.is_data = True
             sky = world_sky_node(context_world(context))
             name = "Clouds " + os.path.splitext(os.path.basename(self.filepath))[0]
+            layer2_of = sky.cloud_map if self.layer == '2' else None
+            if self.layer == '2' and layer2_of is None:
+                self.report({'ERROR'}, "Make or choose the first cloud map first")
+                return {'CANCELLED'}
             image = cloud_map.make_cloud_map_from_satellite(
                 source, pixel_m=self.pixel_size, name=name, size=int(self.size),
-                altitude_m=sky.cloud_altitude, rotation=self.rotation)
+                altitude_m=sky.cloud_altitude, rotation=self.rotation, layer2_of=layer2_of)
         finally:
             if source.name not in existing and source.users == 0:
                 bpy.data.images.remove(source)
         sky.cloud_map = image
         sky.cloud_scale = 5.0
+        if self.layer == '2' and sky.cloud_density2 == 0.0:
+            sky.cloud_density2 = 1.0
         sky.use_clouds = True
         return {'FINISHED'}
 
@@ -2079,6 +2106,7 @@ class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
             # Clouds from a photo, lit by this sky's sun.
             col = layout.column(align=True)
             col.prop(sky, "cloud_density", text="Density")
+            col.prop(sky, "cloud_density2", text="Layer 2 Density")
             col.prop(sky, "cloud_map_shading")
             col.prop(sky, "cloud_direction", text="Rotation")
             col = layout.column(align=True)

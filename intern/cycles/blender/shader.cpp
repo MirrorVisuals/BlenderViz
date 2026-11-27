@@ -1133,6 +1133,7 @@ static ShaderNode *add_node(Scene *scene,
     sky->set_cloud_detail(storage.cloud_detail);
     sky->set_cloud_edge_softness(storage.cloud_edge_softness);
     sky->set_cloud_edge_detail(storage.cloud_edge_detail);
+    sky->set_cloud_density2(storage.cloud_density2);
     sky->set_use_cumulus(storage.use_cumulus);
     sky->set_cumulus_coverage(storage.cumulus_coverage);
     sky->set_cumulus_size(storage.cumulus_size);

@@ -2660,6 +2660,9 @@ struct NodeTexSky {
   float cumulus_thickness = 0;
   /** Optical thickness. */
   float cumulus_density = 0;
+  /** With a cloud map: optical thickness of its second layer (opacity in blue). */
+  float cloud_density2 = 0;
+  char _pad_layer2[4] = {};
 };
 
 struct NodeTexImage {

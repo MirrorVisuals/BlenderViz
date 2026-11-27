@@ -212,6 +212,7 @@ class SkyTextureNode : public TextureNode {
   NODE_SOCKET_API(float, cloud_detail)
   NODE_SOCKET_API(float, cloud_edge_softness)
   NODE_SOCKET_API(float, cloud_edge_detail)
+  NODE_SOCKET_API(float, cloud_density2)
   /* BlenderViz: cumulus clouds. */
   NODE_SOCKET_API(bool, use_cumulus)
   NODE_SOCKET_API(float, cumulus_coverage)
