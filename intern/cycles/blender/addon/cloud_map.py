@@ -541,3 +541,111 @@ def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fad
     del data
     image.pack()
     return image
+
+
+# -----------------------------------------------------------------------------
+# Clouds from satellite images (top-down maps of a cloud layer).
+
+def _sat_pyramid(img, levels):
+    pyr = [img.astype(np.float32)]
+    for _ in range(levels):
+        a = pyr[-1]
+        h, w = (a.shape[0] // 2) * 2, (a.shape[1] // 2) * 2
+        pyr.append(a[:h, :w].reshape(h // 2, 2, w // 2, 2).mean(axis=(1, 3)))
+    return pyr
+
+def _sat_mirror(u):
+    """Mirrored repeat of 0..1 (so the map tiles without seams)."""
+    u = np.mod(u, 2.0)
+    return np.where(u > 1.0, 2.0 - u, u)
+
+def _sat_sample(img, u, v):
+    """Bilinear lookup at u, v in 0..1 (mirrored repeat), rows bottom to top."""
+    h, w = img.shape
+    x = _sat_mirror(u) * (w - 1)
+    y = _sat_mirror(v) * (h - 1)
+    x0 = np.clip(np.floor(x).astype(np.int64), 0, w - 2); y0 = np.clip(np.floor(y).astype(np.int64), 0, h - 2)
+    fx = x - x0; fy = y - y0
+    return ((img[y0, x0] * (1 - fx) + img[y0, x0 + 1] * fx) * (1 - fy) +
+            (img[y0 + 1, x0] * (1 - fx) + img[y0 + 1, x0 + 1] * fx) * fy)
+
+def cirrus_opacity_from_band(c):
+    """Opacity of the cirrus from Sentinel-2 band 10 (top of atmosphere reflectance at 1375 nm,
+    where the water vapour below hides the sea and the low clouds)."""
+    floor = np.percentile(c, 5) + 0.0006
+    x = np.maximum(c - floor, 0.0)
+    # Thin cirrus reflects about 1-2 %, thick 5 % and more.
+    op = 1.0 - np.exp(-x * 45.0)
+    return _smoothstep(0.0, 0.08, op) * op
+
+def cloud_map_from_planar(op_src, pixel_m, size=2048, altitude_m=9000.0, rotation=0.0,
+                          horizon_fade=3.0, shading_src=None):
+    """Fisheye cloud map (as from the photos) of a top-down map of a cloud layer at altitude_m:
+    the map is laid out over the sky at that height, repeated mirrored beyond its edges, and
+    filtered more where it is seen from far away (toward the horizon)."""
+    h, w = op_src.shape
+    width_km = w * pixel_m / 1000.0
+    height_km = h * pixel_m / 1000.0
+    alt = altitude_m / 1000.0
+    pyr = _sat_pyramid(op_src, 7)
+    out = np.zeros((size, size, 2), np.float32)
+    c = (np.arange(size, dtype=np.float32) + 0.5) / size * 2.0 - 1.0
+    pixel_angle = (math.pi / 2) / (size / 2)
+    for y0 in range(0, size, 512):
+        X, Y = np.meshgrid(c, c[y0:y0 + 512])
+        r = np.sqrt(X * X + Y * Y)
+        inside = r < 1.0
+        theta = np.minimum(r, 0.9999) * (math.pi / 2)
+        phi = np.arctan2(Y, X) + rotation
+        dz = np.cos(theta)
+        # distance to the layer (curved earth) and where it is
+        a = (1 - dz * dz) / (2 * 6371.0)
+        t = (-dz + np.sqrt(dz * dz + 4 * a * alt)) / np.maximum(2 * a, 1e-12)
+        t = np.where(a < 1e-12, alt / np.maximum(dz, 1e-6), t)
+        ground = t * np.sin(theta)
+        px = ground * np.cos(phi); py = ground * np.sin(phi)
+        u = 0.5 + px / width_km
+        v = 0.5 + py / height_km
+        # footprint of a map pixel on the layer (km), stretched along the view toward the horizon
+        foot = t * pixel_angle / np.maximum(dz + 0.02, 0.02)
+        level = np.clip(np.log2(np.maximum(foot / (pixel_m / 1000.0), 1e-6)), 0, len(pyr) - 1.001)
+        l0 = np.floor(level).astype(int); fl = level - l0
+        res = np.zeros_like(X)
+        for L in range(len(pyr) - 1):
+            m = l0 == L
+            if not m.any():
+                continue
+            a0 = _sat_sample(pyr[L], u[m], v[m]); a1 = _sat_sample(pyr[L + 1], u[m], v[m])
+            res[m] = a0 * (1 - fl[m]) + a1 * fl[m]
+        el = 90.0 - np.degrees(theta)
+        res *= _smoothstep(0.0, horizon_fade, el)
+        res[~inside] = 0
+        out[y0:y0 + 512, :, 0] = res
+    out[..., 1] = 0.5
+    return out
+
+
+def make_cloud_map_from_satellite(band_image, pixel_m=20.0, name=None, size=8192,
+                                  altitude_m=9000.0, rotation=0.0):
+    """New Blender image (packed) with the cirrus of a Sentinel-2 band 10 image (the cirrus band),
+    laid out over the sky at altitude_m."""
+    import bpy
+
+    w, h = band_image.size
+    buf = np.empty(w * h * 4, dtype=np.float32)
+    band_image.pixels.foreach_get(buf)
+    band = buf.reshape(h, w, 4)[..., 0].copy()
+    del buf
+    op = cirrus_opacity_from_band(band)
+    data = cloud_map_from_planar(op, pixel_m, size=size, altitude_m=altitude_m, rotation=rotation)
+    rgba = np.zeros((size, size, 4), dtype=np.float32)
+    rgba[..., :2] = data
+    rgba[..., 3] = 1.0
+    del data
+    name = name or "Clouds " + band_image.name
+    image = bpy.data.images.new(name, size, size, alpha=False, float_buffer=False, is_data=True)
+    image.colorspace_settings.is_data = True
+    image.pixels.foreach_set(rgba.ravel())
+    del rgba
+    image.pack()
+    return image

@@ -1986,6 +1986,65 @@ class CYCLES_OT_world_cloud_map_from_hdri(Operator):
         return {'FINISHED'}
 
 
+class CYCLES_OT_world_cloud_map_from_satellite(Operator):
+    """Make a cirrus cloud map from a satellite image: band 10 (the cirrus band) of Sentinel-2 """ \
+        """Level-1C, as downloaded from the Copernicus Browser. The cloud map is packed into the file"""
+    bl_idname = "cycles.world_cloud_map_from_satellite"
+    bl_label = "Cloud Map from Satellite"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filepath: bpy.props.StringProperty(subtype='FILE_PATH')
+    filter_glob: bpy.props.StringProperty(default="*.tif;*.tiff", options={'HIDDEN'})
+    pixel_size: bpy.props.FloatProperty(
+        name="Pixel Size", subtype='DISTANCE', default=20.0, min=1.0, max=1000.0,
+        description="Size of one pixel of the satellite image on the ground (the resolution it "
+        "was downloaded at)",
+    )
+    size: bpy.props.EnumProperty(
+        name="Resolution",
+        items=(('8192', "8192", "Full detail (about 270 MB of memory when rendering)"),
+               ('4096', "4096", "Less memory (about 70 MB)"),
+               ('2048', "2048", "Least memory, for wide views only")),
+        default='8192',
+    )
+    rotation: bpy.props.FloatProperty(
+        name="Rotation", subtype='ANGLE',
+        description="Turn the clouds of the satellite image around the zenith",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return world_sky_node(context_world(context)) is not None
+
+    def invoke(self, context, _event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        import os
+        from . import cloud_map
+
+        if not os.path.isfile(self.filepath):
+            self.report({'ERROR'}, "Choose the band 10 (cirrus) image")
+            return {'CANCELLED'}
+        existing = {image.name for image in bpy.data.images}
+        source = bpy.data.images.load(self.filepath, check_existing=True)
+        try:
+            source.colorspace_settings.is_data = True
+            sky = world_sky_node(context_world(context))
+            name = "Clouds " + os.path.splitext(os.path.basename(self.filepath))[0]
+            image = cloud_map.make_cloud_map_from_satellite(
+                source, pixel_m=self.pixel_size, name=name, size=int(self.size),
+                altitude_m=sky.cloud_altitude, rotation=self.rotation)
+        finally:
+            if source.name not in existing and source.users == 0:
+                bpy.data.images.remove(source)
+        sky.cloud_map = image
+        sky.cloud_scale = 5.0
+        sky.use_clouds = True
+        return {'FINISHED'}
+
+
 class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
     bl_label = "Clouds"
     bl_context = "world"
@@ -2011,6 +2070,7 @@ class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
         row = layout.row(align=True)
         row.operator("cycles.world_cloud_map_preset", text="Photo Clouds", icon='IMAGE_DATA')
         row.operator("cycles.world_cloud_map_from_hdri", text="From HDRI", icon='WORLD')
+        row.operator("cycles.world_cloud_map_from_satellite", text="From Satellite", icon='WORLD_DATA')
         layout.template_ID(sky, "cloud_map", open="image.open")
 
         layout.use_property_split = True
@@ -3018,6 +3078,7 @@ classes = (
     CYCLES_OT_world_sky_clouds_add,
     CYCLES_OT_world_cloud_map_preset,
     CYCLES_OT_world_cloud_map_from_hdri,
+    CYCLES_OT_world_cloud_map_from_satellite,
     CYCLES_WORLD_PT_clouds,
     CYCLES_WORLD_PT_cumulus,
     CYCLES_WORLD_PT_volume,
