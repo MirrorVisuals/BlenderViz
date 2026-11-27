@@ -1898,6 +1898,7 @@ class CYCLES_OT_world_sky_clouds_add(Operator):
         presets = cloud_map_presets()
         if presets:
             sky.cloud_map = load_cloud_map(presets[0][1])
+            sky.cloud_scale = 5.0
         return {'FINISHED'}
 
 
@@ -1923,6 +1924,8 @@ class CYCLES_OT_world_cloud_map_preset(Operator):
             return {'CANCELLED'}
         sky = world_sky_node(context_world(context))
         sky.cloud_map = load_cloud_map(self.preset)
+        # The detail noise at the size that suits photo clouds.
+        sky.cloud_scale = 5.0
         sky.use_clouds = True
         return {'FINISHED'}
 
@@ -1978,6 +1981,7 @@ class CYCLES_OT_world_cloud_map_from_hdri(Operator):
                 bpy.data.images.remove(source)
         sky = world_sky_node(context_world(context))
         sky.cloud_map = image
+        sky.cloud_scale = 5.0
         sky.use_clouds = True
         return {'FINISHED'}
 

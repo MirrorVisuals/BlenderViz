@@ -263,8 +263,9 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
     rel_light = gain / ref_lum
     if rel_light.ndim == 2:
         rel_light = _blur(rel_light, 1)
-    full_light = 1.2 * (1.0 + 3.0 * np.exp(-np.degrees(gamma) / 12.0))
-    lit = _smoothstep(0.08, 0.3, rel_light) * np.clip(rel_light / full_light, 0.0, 1.0)
+    full_light = 1.5 * (1.0 + 3.0 * np.exp(-np.degrees(gamma) / 12.0))
+    # Bright but translucent: light alone never makes a cloud more than about half opaque.
+    lit = 0.6 * _smoothstep(0.08, 0.3, rel_light) * np.clip(rel_light / full_light, 0.0, 1.0)
     opacity = np.maximum(opacity, lit)
     # A soft top: even thick cirrus lets a little sky through.
     opacity = np.where(opacity < 0.7, opacity, 0.7 + 0.25 * np.tanh((opacity - 0.7) / 0.25))

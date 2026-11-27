@@ -276,7 +276,7 @@ ccl_device float3 cirrus_light(KernelGlobals kg,
   /* The relief shapes the sunlit side strongly; the light from all around reaches the thick cores
    * less. Sunlit and shaded parts then differ in colour as well (warm against cool), instead of
    * the whole cloud being one mixed beige. */
-  const float occlusion = 1.0f - 0.45f * thick;
+  const float occlusion = 1.0f - 0.3f * thick;
   const float sun_relief = clamp(relief * relief, 0.15f, 2.5f);
   float3 cloud_xyz = sun_xyz * (scatter * sun_relief) +
                      (ambient.above + below) * (0.5f * occlusion * fminf(relief, 1.0f));
@@ -452,7 +452,8 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
   }
   /* The light and shade in the photo (green, 0.5 neutral): the inner texture of the cloud. */
   if (c.map_shading > 0.0f) {
-    relief *= clamp(1.0f + c.map_shading * (2.0f * shade - 1.0f), 0.3f, 2.0f);
+    /* Square root: the sunlight takes the relief squared, the photo's shading not. */
+    relief *= sqrtf(clamp(1.0f + c.map_shading * (2.0f * shade - 1.0f), 0.3f, 2.0f));
   }
   return cirrus_light(kg, c, dir, sun_dir, sky_rgb, ambient, alpha, tau, relief);
 }
