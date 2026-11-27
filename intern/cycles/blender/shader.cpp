@@ -1133,6 +1133,12 @@ static ShaderNode *add_node(Scene *scene,
     sky->set_cloud_detail(storage.cloud_detail);
     sky->set_cloud_edge_softness(storage.cloud_edge_softness);
     sky->set_cloud_edge_detail(storage.cloud_edge_detail);
+    sky->set_use_cumulus(storage.use_cumulus);
+    sky->set_cumulus_coverage(storage.cumulus_coverage);
+    sky->set_cumulus_size(storage.cumulus_size);
+    sky->set_cumulus_altitude(storage.cumulus_altitude);
+    sky->set_cumulus_thickness(storage.cumulus_thickness);
+    sky->set_cumulus_density(storage.cumulus_density);
     /* BlenderViz: cloud map, made from a photo (the node's image). */
     blender::Image *b_cloud_image = blender::id_cast<blender::Image *>(b_node.id);
     if (b_cloud_image && storage.use_clouds) {

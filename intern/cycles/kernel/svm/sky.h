@@ -8,6 +8,7 @@
 
 #include "kernel/svm/node_types.h"
 #include "kernel/svm/sky_clouds.h"
+#include "kernel/svm/sky_cumulus.h"
 #include "kernel/svm/types.h"
 #include "kernel/svm/util.h"
 
@@ -258,12 +259,20 @@ ccl_device_noinline int svm_node_tex_sky(KernelGlobals kg,
     rgb = sky_radiance_nishita(
         kg, sd, dir, path_flag, pixel_bottom, pixel_top, sky_data, nishita.texture_id);
 
-    /* BlenderViz: cirrus clouds. */
-    if (node.use_clouds) {
-      const ccl_global SVMNodeTexSkyCloudsData &clouds =
-          *reinterpret_cast<const ccl_global SVMNodeTexSkyCloudsData *>(
-              &kernel_data_fetch(svm_nodes, offset));
-      offset += sizeof(SVMNodeTexSkyCloudsData) / sizeof(uint);
+    /* BlenderViz: cirrus clouds, and cumulus below them. */
+    if (node.use_clouds || node.use_cumulus) {
+      const ccl_global SVMNodeTexSkyCloudsData *clouds = nullptr;
+      if (node.use_clouds) {
+        clouds = reinterpret_cast<const ccl_global SVMNodeTexSkyCloudsData *>(
+            &kernel_data_fetch(svm_nodes, offset));
+        offset += sizeof(SVMNodeTexSkyCloudsData) / sizeof(uint);
+      }
+      const ccl_global SVMNodeTexSkyCumulusData *cumulus = nullptr;
+      if (node.use_cumulus) {
+        cumulus = reinterpret_cast<const ccl_global SVMNodeTexSkyCumulusData *>(
+            &kernel_data_fetch(svm_nodes, offset));
+        offset += sizeof(SVMNodeTexSkyCumulusData) / sizeof(uint);
+      }
       if (dir.z > 0.0f) {
         const float3 sun_dir = spherical_to_direction(nishita.sun_elevation - M_PI_2_F,
                                                       nishita.sun_rotation - M_PI_2_F);
@@ -283,7 +292,13 @@ ccl_device_noinline int svm_node_tex_sky(KernelGlobals kg,
         ambient.above = above * (1.0f / 8.0f);
         /* The air near the horizon; the sunlit ground is added with the clouds' sun. */
         ambient.below = horizon * (1.0f / 6.0f);
-        rgb = sky_cirrus(kg, sd, path_flag, clouds, normalize(dir), sun_dir, rgb, ambient);
+        const float3 view = normalize(dir);
+        if (clouds) {
+          rgb = sky_cirrus(kg, sd, path_flag, *clouds, view, sun_dir, rgb, ambient);
+        }
+        if (cumulus) {
+          rgb = sky_cumulus(kg, sd, path_flag, *cumulus, view, sun_dir, rgb, ambient);
+        }
       }
     }
   }

@@ -212,8 +212,17 @@ class SkyTextureNode : public TextureNode {
   NODE_SOCKET_API(float, cloud_detail)
   NODE_SOCKET_API(float, cloud_edge_softness)
   NODE_SOCKET_API(float, cloud_edge_detail)
+  /* BlenderViz: cumulus clouds. */
+  NODE_SOCKET_API(bool, use_cumulus)
+  NODE_SOCKET_API(float, cumulus_coverage)
+  NODE_SOCKET_API(float, cumulus_size)
+  NODE_SOCKET_API(float, cumulus_altitude)
+  NODE_SOCKET_API(float, cumulus_thickness)
+  NODE_SOCKET_API(float, cumulus_density)
   NODE_SOCKET_API(float3, vector)
   ImageHandle handle;
+  /* The noise the cumulus are carved from. */
+  ImageHandle cumulus_handle;
   /* Cloud map made from a photo (set by the host application); empty: procedural cirrus. */
   ImageHandle cloud_handle;
 
@@ -233,6 +242,9 @@ class SkyTextureNode : public TextureNode {
 
   float get_sun_average_radiance();
   SVMNodeTexSkyCloudsData clouds_data();
+  SVMNodeTexSkyCumulusData cumulus_data();
+  /* Sun irradiance (XYZ) at `height` (m above sea level). */
+  void sun_irradiance_at(float height, float xyz[3]);
 };
 
 class OutputNode : public ShaderNode {

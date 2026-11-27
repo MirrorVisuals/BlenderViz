@@ -2046,6 +2046,35 @@ class CYCLES_WORLD_PT_clouds(CyclesButtonsPanel, Panel):
         col.prop(sky, "sun_rotation")
 
 
+class CYCLES_WORLD_PT_cumulus(CyclesButtonsPanel, Panel):
+    bl_label = "Cumulus"
+    bl_context = "world"
+
+    @classmethod
+    def poll(cls, context):
+        return context.world and world_sky_node(context.world) and CyclesButtonsPanel.poll(context)
+
+    def draw_header(self, context):
+        self.layout.prop(world_sky_node(context.world), "use_cumulus", text="")
+
+    def draw(self, context):
+        layout = self.layout
+        sky = world_sky_node(context.world)
+        layout.active = sky.use_cumulus
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        col = layout.column(align=True)
+        col.prop(sky, "cumulus_coverage")
+        col.prop(sky, "cumulus_density")
+        col.prop(sky, "cumulus_size")
+        col = layout.column(align=True)
+        col.prop(sky, "cumulus_altitude")
+        col.prop(sky, "cumulus_thickness")
+        col = layout.column(align=True)
+        col.prop(sky, "cloud_offset", text="Offset")
+        col.prop(sky, "cloud_seed", text="Seed")
+
+
 class CYCLES_WORLD_PT_volume(CyclesButtonsPanel, Panel):
     bl_label = "Volume"
     bl_translation_context = i18n_contexts.id_id
@@ -2990,6 +3019,7 @@ classes = (
     CYCLES_OT_world_cloud_map_preset,
     CYCLES_OT_world_cloud_map_from_hdri,
     CYCLES_WORLD_PT_clouds,
+    CYCLES_WORLD_PT_cumulus,
     CYCLES_WORLD_PT_volume,
     CYCLES_WORLD_PT_mist,
     CYCLES_WORLD_PT_ray_visibility,

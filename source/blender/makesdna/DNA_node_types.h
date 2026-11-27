@@ -2648,6 +2648,18 @@ struct NodeTexSky {
   /** With a cloud map: gradual falloff at the cloud edges, and noise only along them, 0..1. */
   float cloud_edge_softness = 0;
   float cloud_edge_detail = 0;
+  /** BlenderViz: cumulus clouds, 3D volumes below the cirrus. */
+  char use_cumulus = 0;
+  char _pad_cumulus[3] = {};
+  /** How much of the sky they cover, 0..1. */
+  float cumulus_coverage = 0;
+  /** Size of the clouds (1: as in nature). */
+  float cumulus_size = 0;
+  /** Height of their base above sea level, and how tall they grow (m). */
+  float cumulus_altitude = 0;
+  float cumulus_thickness = 0;
+  /** Optical thickness. */
+  float cumulus_density = 0;
 };
 
 struct NodeTexImage {

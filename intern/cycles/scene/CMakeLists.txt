@@ -29,6 +29,7 @@ set(SRC
   image_loader.cpp
   image_oiio.cpp
   image_sky.cpp
+  image_cloud_noise.cpp
   image_vdb.cpp
   integrator.cpp
   scene_attributes.cpp
@@ -71,6 +72,7 @@ set(SRC_HEADERS
   image_loader.h
   image_oiio.h
   image_sky.h
+  image_cloud_noise.h
   image_vdb.h
   integrator.h
   light.h

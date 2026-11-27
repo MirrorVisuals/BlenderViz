@@ -68,6 +68,18 @@ static void node_shader_buts_tex_sky(ui::Layout &layout, bContext *C, PointerRNA
       col.prop(ptr, "ozone_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
     }
 
+    /* BlenderViz: cumulus clouds. */
+    layout.prop(ptr, "use_cumulus", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    if (RNA_boolean_get(ptr, "use_cumulus")) {
+      ui::Layout &col = layout.column(true);
+      col.prop(ptr, "cumulus_coverage", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col.prop(ptr, "cumulus_density", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col.prop(ptr, "cumulus_size", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      ui::Layout &col2 = layout.column(true);
+      col2.prop(ptr, "cumulus_altitude", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+      col2.prop(ptr, "cumulus_thickness", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
+    }
+
     /* BlenderViz: cirrus clouds. */
     layout.prop(ptr, "use_clouds", ui::ITEM_R_SPLIT_EMPTY_NAME, std::nullopt, ICON_NONE);
     if (RNA_boolean_get(ptr, "use_clouds")) {
@@ -140,6 +152,11 @@ static void node_shader_init_tex_sky(bNodeTree * /*ntree*/, bNode *node)
   tex->cloud_detail = 0.3f;
   tex->cloud_edge_softness = 0.5f;
   tex->cloud_edge_detail = 0.5f;
+  tex->cumulus_coverage = 0.4f;
+  tex->cumulus_size = 1.0f;
+  tex->cumulus_altitude = 1500.0f;
+  tex->cumulus_thickness = 2200.0f;
+  tex->cumulus_density = 1.0f;
   node->storage = tex;
 }
 

@@ -4139,6 +4139,13 @@ static void rna_ShaderNodeTexSky_clouds_update(Main *bmain, Scene *scene, Pointe
     sky->cloud_edge_softness = 0.5f;
     sky->cloud_edge_detail = 0.5f;
   }
+  if (sky->use_cumulus && sky->cumulus_size == 0.0f) {
+    sky->cumulus_coverage = 0.4f;
+    sky->cumulus_size = 1.0f;
+    sky->cumulus_altitude = 1500.0f;
+    sky->cumulus_thickness = 2200.0f;
+    sky->cumulus_density = 1.0f;
+  }
 
   rna_Node_update(bmain, scene, ptr);
 }
@@ -5552,6 +5559,52 @@ static void def_sh_tex_sky(BlenderRNA *brna, StructRNA *srna)
                            "Edge Detail",
                            "Noise only along the edges of the clouds: they fray into wisps "
                            "instead of clean cut-outs");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  /* BlenderViz: cumulus clouds. */
+  prop = RNA_def_property(srna, "use_cumulus", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "use_cumulus", 1);
+  RNA_def_property_ui_text(prop,
+                           "Cumulus",
+                           "Puffy 3D cumulus clouds below the cirrus, lit by the sun of the sky "
+                           "(Cycles)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNodeTexSky_clouds_update");
+
+  prop = RNA_def_property(srna, "cumulus_coverage", PROP_FLOAT, PROP_FACTOR);
+  RNA_def_property_range(prop, 0.0f, 1.0f);
+  RNA_def_property_float_default(prop, 0.4f);
+  RNA_def_property_ui_text(prop, "Coverage", "How much of the sky the cumulus cover");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cumulus_size", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_range(prop, 0.05f, 20.0f);
+  RNA_def_property_ui_range(prop, 0.25f, 4.0f, 10, 2);
+  RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_ui_text(prop, "Cloud Size", "Size of the clouds (1: as in nature)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cumulus_altitude", PROP_FLOAT, PROP_DISTANCE);
+  RNA_def_property_range(prop, 200.0f, 8000.0f);
+  RNA_def_property_float_default(prop, 1500.0f);
+  RNA_def_property_ui_text(
+      prop, "Base Height", "Height of the flat bases of the clouds above sea level");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cumulus_thickness", PROP_FLOAT, PROP_DISTANCE);
+  RNA_def_property_range(prop, 200.0f, 10000.0f);
+  RNA_def_property_float_default(prop, 2200.0f);
+  RNA_def_property_ui_text(prop,
+                           "Thickness",
+                           "How tall the tallest clouds grow above their base (flat fair-weather "
+                           "cumulus: under 1 km, towering: several km)");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+  prop = RNA_def_property(srna, "cumulus_density", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_range(prop, 0.0f, 10.0f);
+  RNA_def_property_ui_range(prop, 0.0f, 4.0f, 10, 2);
+  RNA_def_property_float_default(prop, 1.0f);
+  RNA_def_property_ui_text(
+      prop, "Density", "Thickness of the cloud material: low is soft and see-through");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 
   /* Legacy parameters. */

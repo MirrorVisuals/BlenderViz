@@ -11,6 +11,7 @@
 #include "scene/constant_fold.h"
 #include "scene/film.h"
 #include "scene/image.h"
+#include "scene/image_cloud_noise.h"
 #include "scene/image_sky.h"
 #include "scene/integrator.h"
 #include "scene/light.h"
@@ -915,19 +916,15 @@ static void sky_texture_precompute_nishita(SunSky *sunsky,
   sunsky->nishita_data[10] = -earth_intersection_angle;
 }
 
-/* BlenderViz: the cirrus clouds (kernel/svm/sky_clouds.h). */
-SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
+/* BlenderViz: the sun as seen at a height (for the clouds). */
+void SkyTextureNode::sun_irradiance_at(const float height, float xyz[3])
 {
-  /* The sun as seen from the clouds: through less air than from the ground, so whiter, and
-   * still shining on them for a while after it has set below. Low sunlight reaching a cloud
-   * comes along a path that dips below it, so it is taken at half the cloud height: warmer. */
   const float sun_size = get_sun_size();
   float bottom[3], top[3];
-  const float light_altitude = 0.5f * (cloud_altitude + altitude);
   if (sky_type == NODE_SKY_MULTIPLE_SCATTERING) {
     SKY_multiple_scattering_precompute_sun(sun_elevation,
                                            sun_size,
-                                           light_altitude,
+                                           height,
                                            air_density,
                                            aerosol_density,
                                            ozone_density,
@@ -936,11 +933,57 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
   }
   else {
     SKY_single_scattering_precompute_sun(
-        sun_elevation, sun_size, light_altitude, air_density, aerosol_density, bottom, top);
+        sun_elevation, sun_size, height, air_density, aerosol_density, bottom, top);
   }
   /* The pixels are radiance over the sun disc: back to the irradiance of the sun. */
   const float solid_angle = M_2PI_F * (1.0f - cosf(sun_size * 0.5f));
   const float sun_scale = 0.5f * solid_angle * sun_intensity;
+  for (int i = 0; i < 3; i++) {
+    xyz[i] = (bottom[i] + top[i]) * sun_scale;
+  }
+}
+
+/* BlenderViz: the cumulus clouds (kernel/svm/sky_cumulus.h). */
+SVMNodeTexSkyCumulusData SkyTextureNode::cumulus_data()
+{
+  const float base = max(cumulus_altitude - altitude, 100.0f);
+  const float thickness = max(cumulus_thickness, 100.0f);
+  /* The sun in the middle of the layer: at sunset the base is lit redder than the top, but one
+   * colour for the layer is close enough. */
+  float sun[3];
+  sun_irradiance_at(altitude + base + 0.5f * thickness, sun);
+  const float size = max(cumulus_size, 0.05f);
+  return SVMNodeTexSkyCumulusData{
+      .sun_x = sun[0],
+      .sun_y = sun[1],
+      .sun_z = sun[2],
+      .earth_radius = 6360.0f + altitude / 1000.0f,
+      .base = base / 1000.0f,
+      .thickness = thickness / 1000.0f,
+      .coverage = clamp(cumulus_coverage, 0.0f, 1.0f),
+      .sigma = 60.0f * max(cumulus_density, 0.0f),
+      .shape_scale = 3.2f * size,
+      .detail_scale = 0.9f * size,
+      .weather_scale = 7.0f * size,
+      .offset_x = cloud_offset_x / 1000.0f,
+      .offset_y = cloud_offset_y / 1000.0f,
+      .rayleigh_r = 0.0058f * air_density,
+      .rayleigh_g = 0.0135f * air_density,
+      .rayleigh_b = 0.0331f * air_density,
+      .mie = 0.0233f * aerosol_density,
+      .seed = uint(cloud_seed),
+      .noise_id = cumulus_handle.empty() ? -1 : cumulus_handle.kernel_id(),
+  };
+}
+
+/* BlenderViz: the cirrus clouds (kernel/svm/sky_clouds.h). */
+SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
+{
+  /* The sun as seen from the clouds: through less air than from the ground, so whiter, and
+   * still shining on them for a while after it has set below. Low sunlight reaching a cloud
+   * comes along a path that dips below it, so it is taken at half the cloud height: warmer. */
+  float sun[3];
+  sun_irradiance_at(0.5f * (cloud_altitude + altitude), sun);
 
   const float eye = altitude / 1000.0f;
   const float h = max(cloud_altitude / 1000.0f - eye, 0.0f);
@@ -949,9 +992,9 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
   const float mie = aerosol_density * 0.0233f * 1.2f * (1.0f - expf(-h / 1.2f));
 
   return SVMNodeTexSkyCloudsData{
-      .sun_x = (bottom[0] + top[0]) * sun_scale,
-      .sun_y = (bottom[1] + top[1]) * sun_scale,
-      .sun_z = (bottom[2] + top[2]) * sun_scale,
+      .sun_x = sun[0],
+      .sun_y = sun[1],
+      .sun_z = sun[2],
       .altitude = h,
       .earth_radius = 6360.0f + eye,
       .amount = cloud_amount,
@@ -1070,6 +1113,13 @@ NODE_DEFINE(SkyTextureNode)
   SOCKET_FLOAT(cloud_detail, "Cloud Detail", 0.3f);
   SOCKET_FLOAT(cloud_edge_softness, "Cloud Edge Softness", 0.5f);
   SOCKET_FLOAT(cloud_edge_detail, "Cloud Edge Detail", 0.5f);
+  /* BlenderViz: cumulus clouds. */
+  SOCKET_BOOLEAN(use_cumulus, "Cumulus", false);
+  SOCKET_FLOAT(cumulus_coverage, "Cumulus Coverage", 0.4f);
+  SOCKET_FLOAT(cumulus_size, "Cumulus Size", 1.0f);
+  SOCKET_FLOAT(cumulus_altitude, "Cumulus Altitude", 1500.0f);
+  SOCKET_FLOAT(cumulus_thickness, "Cumulus Thickness", 2200.0f);
+  SOCKET_FLOAT(cumulus_density, "Cumulus Density", 1.0f);
   SOCKET_IN_POINT(vector, "Vector", zero_float3(), SocketType::LINK_TEXTURE_GENERATED);
   SOCKET_OUT_COLOR(color, "Color");
 
@@ -1162,9 +1212,18 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
 
   const SVMStackOffset vector_offset = tex_mapping.compile_begin(compiler, vector_in, nullptr);
 
-  const bool clouds = use_clouds && cloud_density > 0.0f &&
-                      (sky_type == NODE_SKY_SINGLE_SCATTERING ||
-                       sky_type == NODE_SKY_MULTIPLE_SCATTERING);
+  const bool nishita = sky_type == NODE_SKY_SINGLE_SCATTERING ||
+                       sky_type == NODE_SKY_MULTIPLE_SCATTERING;
+  const bool clouds = use_clouds && cloud_density > 0.0f && nishita;
+  const bool cumulus = use_cumulus && cumulus_density > 0.0f && cumulus_coverage > 0.0f &&
+                       nishita;
+  if (cumulus && cumulus_handle.empty()) {
+    ImageParams noise_params;
+    noise_params.interpolation = INTERPOLATION_LINEAR;
+    noise_params.extension = EXTENSION_EXTEND;
+    cumulus_handle = compiler.scene->image_manager->add_image(make_unique<CloudNoiseLoader>(),
+                                                              noise_params);
+  }
   compiler.add_node(this,
                     NODE_TEX_SKY,
                     SVMNodeTexSky{
@@ -1172,6 +1231,7 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
                         .dir_offset = vector_offset,
                         .out_offset = compiler.output("Color"),
                         .use_clouds = uint8_t(clouds),
+                        .use_cumulus = uint8_t(cumulus),
                     });
   if (sky_type == NODE_SKY_PREETHAM || sky_type == NODE_SKY_HOSEK) {
     SVMNodeTexSkyPreethamData preetham_data = {};
@@ -1202,6 +1262,9 @@ void SkyTextureNode::compile(SVMCompiler &compiler)
     });
     if (clouds) {
       compiler.add_node_data(clouds_data());
+    }
+    if (cumulus) {
+      compiler.add_node_data(cumulus_data());
     }
   }
 

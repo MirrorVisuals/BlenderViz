@@ -100,6 +100,7 @@ set(SRC_KERNEL_SVM_HEADERS
   svm/sepcomb_vector.h
   svm/sky.h
   svm/sky_clouds.h
+  svm/sky_cumulus.h
   svm/tex_coord.h
   svm/tex_randomizer.h
   svm/fractal_noise.h

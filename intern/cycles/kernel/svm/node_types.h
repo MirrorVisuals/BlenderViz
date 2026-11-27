@@ -767,9 +767,10 @@ struct SVMNodeTexSky {
   NodeSkyType sky_type;
   SVMStackOffset dir_offset;
   SVMStackOffset out_offset;
-  /* BlenderViz: #SVMNodeTexSkyCloudsData follows the Nishita data. */
+  /* BlenderViz: #SVMNodeTexSkyCloudsData follows the Nishita data, then
+   * #SVMNodeTexSkyCumulusData. */
   uint8_t use_clouds;
-  uint8_t _pad[1];
+  uint8_t use_cumulus;
 };
 static_assert(alignof(SVMNodeTexSky) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSky) % sizeof(uint) == 0);
@@ -844,6 +845,37 @@ struct SVMNodeTexSkyCloudsData {
 };
 static_assert(alignof(SVMNodeTexSkyCloudsData) <= alignof(uint));
 static_assert(sizeof(SVMNodeTexSkyCloudsData) % sizeof(uint) == 0);
+
+/* BlenderViz: Sky Texture cumulus clouds (kernel/svm/sky_cumulus.h), lengths in km. */
+struct SVMNodeTexSkyCumulusData {
+  /* Sun irradiance in the middle of the cloud layer (XYZ). */
+  float sun_x;
+  float sun_y;
+  float sun_z;
+  float earth_radius;
+  /* Base of the clouds above the eye, and the most they grow above it. */
+  float base;
+  float thickness;
+  float coverage;
+  /* Extinction per km of the densest cloud. */
+  float sigma;
+  /* Sizes of the noise: the cloud shapes, their eroded edges, where the clouds are. */
+  float shape_scale;
+  float detail_scale;
+  float weather_scale;
+  float offset_x;
+  float offset_y;
+  /* Extinction of the air at the eye per km: Rayleigh (RGB) and aerosols. */
+  float rayleigh_r;
+  float rayleigh_g;
+  float rayleigh_b;
+  float mie;
+  uint seed;
+  /* The noise volume (scene/image_cloud_noise.h). */
+  int noise_id;
+};
+static_assert(alignof(SVMNodeTexSkyCumulusData) <= alignof(uint));
+static_assert(sizeof(SVMNodeTexSkyCumulusData) % sizeof(uint) == 0);
 
 /* NODE_RGB_RAMP
  * Only covers the fixed header; variable-length table data follows. */
