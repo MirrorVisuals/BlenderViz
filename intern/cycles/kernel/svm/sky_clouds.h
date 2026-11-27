@@ -257,7 +257,11 @@ ccl_device float3 cirrus_light(KernelGlobals kg,
   const float cos_t = dot(dir, sun_dir);
   const float3 sun_xyz = make_float3(c.sun_x, c.sun_y, c.sun_z);
   const float tau_vertical = tau * fmaxf(dir.z, 0.15f);
-  const float tau_sun = 0.5f * tau_vertical / fmaxf(sun_dir.z + 0.05f, 0.15f);
+  /* A cirrus sheet is thin: even with the sun low, the light reaching a point has crossed only a
+   * little of it (it comes in through the top and is scattered on), so the way to the sun is at
+   * most a little more than the way up through the sheet. */
+  const float tau_sun = fminf(0.5f * tau_vertical / fmaxf(sun_dir.z + 0.05f, 0.15f),
+                              1.2f * tau_vertical);
   const float thick = 1.0f - expf(-2.0f * tau);
   float scatter = 0.0f;
   float weight = 1.0f, extinction = 1.0f, anisotropy = 1.0f;
@@ -266,7 +270,7 @@ ccl_device float3 cirrus_light(KernelGlobals kg,
                         0.5f * cirrus_phase_hg(cos_t, -0.3f * anisotropy);
     scatter += weight * phase * expf(-extinction * tau_sun);
     weight = 0.5f * weight * (octave == 0 ? thick : 1.0f);
-    extinction *= 0.5f;
+    extinction *= 0.3f;
     anisotropy *= 0.5f;
   }
   /* Light from all around: the sky above the clouds, and from below the bright band of air at the

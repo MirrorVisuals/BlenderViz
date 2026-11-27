@@ -575,8 +575,10 @@ def cirrus_opacity_from_band(c):
     floor = np.percentile(c, 5) + 0.0006
     x = np.maximum(c - floor, 0.0)
     # Thin cirrus reflects about 1-2 %, thick 5 % and more.
-    op = 1.0 - np.exp(-x * 45.0)
-    return _smoothstep(0.0, 0.08, op) * op
+    op = 1.0 - np.exp(-x * 30.0)
+    op = _smoothstep(0.0, 0.08, op) * op
+    # A soft top, as for the photos: even thick cirrus lets a little sky through.
+    return np.where(op < 0.7, op, 0.7 + 0.25 * np.tanh((op - 0.7) / 0.25))
 
 def cloud_map_from_planar(op_src, pixel_m, size=2048, altitude_m=9000.0, rotation=0.0,
                           horizon_fade=3.0, shading_src=None):
