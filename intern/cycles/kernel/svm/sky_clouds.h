@@ -365,8 +365,11 @@ ccl_device float3 sky_cirrus_map(KernelGlobals kg,
       hi = fmaxf(hi, s);
     }
     edge = cirrus_smoothstep(0.05f, 0.4f, hi - lo);
-    a += (sum / weight - a) * c.edge_softness;
-    shade += (sum_shade / weight - shade) * c.edge_softness;
+    /* Soften only the borders with clear sky (some of the ring sees almost none of the cloud):
+     * inside the clouds the photo's own detail stays sharp. */
+    const float border = c.edge_softness * (1.0f - cirrus_smoothstep(0.03f, 0.3f, lo));
+    a += (sum / weight - a) * border;
+    shade += (sum_shade / weight - shade) * border;
     /* For a linear ramp the ring gives its slope: sum of s cos = 3 r slope. */
     slope = make_float2(gx, gy) * (1.0f / (3.0f * radius));
     have_slope = c.edge_softness > 0.0f;

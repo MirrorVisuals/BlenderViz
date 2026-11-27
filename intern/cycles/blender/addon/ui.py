@@ -1938,10 +1938,12 @@ class CYCLES_OT_world_cloud_map_from_hdri(Operator):
     filter_glob: bpy.props.StringProperty(default="*.hdr;*.exr", options={'HIDDEN'})
     size: bpy.props.EnumProperty(
         name="Resolution",
-        items=(('2048', "2048", "Enough for wide views"),
-               ('3072', "3072", ""),
-               ('4096', "4096", "For close-ups of the sky (needs an 8K HDRI)")),
-        default='3072',
+        items=(('0', "Auto", "As fine as the HDRI (half its width, up to 8192)"),
+               ('2048', "2048", "Enough for wide views"),
+               ('4096', "4096", "For closer views of the sky (needs an 8K HDRI)"),
+               ('8192', "8192", "Full detail of a 16K HDRI, for close-ups (about 270 MB of "
+                "memory when rendering)")),
+        default='0',
     )
     rotation: bpy.props.FloatProperty(
         name="Rotation", subtype='ANGLE',

@@ -174,7 +174,8 @@ def _binned(values, bins, nbins, func, valid):
     return out
 
 
-def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 1.0, 1.0)):
+def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 1.0, 1.0),
+                    reference=None, lum_blur=None, around=None, details=False):
     """Opacity of the clouds and their shading in a photo of the sky (linear RGB, ... x 3), seen
     in `dirs` (z up), lit by the sun in `sun_dir`.
 
@@ -189,13 +190,20 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
     shading. Things darker than the sky (land, trees, buildings) are not clouds.
 
     Returns (opacity, shading), shading 0.5 neutral.
+
+    For large maps the slowly changing parts are worked out on a smaller map first: with
+    `details`, (opacity, shading, extra) is returned, and `extra` (the clear sky per pair of
+    angles, the blurred brightness of the photo and of the clouds around each point) can be passed
+    back as `reference`, `lum_blur` and `around` (the latter two resampled to the larger map).
     """
     shape = rgb.shape[:-1]
     if valid is None:
         valid = np.ones(shape, dtype=bool)
     rgb = np.maximum(rgb.astype(np.float32), 0.0)
     lum = 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
-    q = float(sun_color[2] - sun_color[0])
+    # The light on the clouds is never as deep orange as the sun's disc at sunset seen through
+    # the whole air (and a much warmer guess would make bright clouds read as clear sky).
+    q = float(np.clip(sun_color[2] - sun_color[0], -0.3, 0.0))
     blue = rgb[..., 2] - rgb[..., 0] - q * lum
     blue_s = _blur(blue, 1) if blue.ndim == 2 else blue
 
@@ -207,14 +215,9 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
     gi = np.clip((gamma / math.pi * ng).astype(int), 0, ng - 1)
     bins = ti * ng + gi
     ok = valid & (dirs[..., 2] > 0.0)
-    # The sun and its glare tell nothing about the sky or the clouds.
-    near_sun = gamma < math.radians(2.5)
-    ok_sky = ok & ~near_sun & (lum < 30.0 * np.median(lum[ok]))
 
     def smooth_grid(values):
         return _blur(_fill_nan(values.reshape(nt, ng)), 1)
-
-    sky_blue = smooth_grid(_binned(blue_s, bins, nt * ng, lambda a: np.percentile(a, 97), ok_sky))
 
     def at(grid):
         tf = np.clip(theta / (math.pi / 2) * nt - 0.5, 0, nt - 1)
@@ -225,10 +228,20 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
         return ((grid[t0, g0] * (1 - fg) + grid[t0, g1] * fg) * (1 - ft) +
                 (grid[t1, g0] * (1 - fg) + grid[t1, g1] * fg) * ft)
 
+    if reference is None:
+        # The sun and its glare tell nothing about the sky or the clouds.
+        near_sun = gamma < math.radians(2.5)
+        ok_sky = ok & ~near_sun & (lum < 30.0 * np.median(lum[ok]))
+        sky_blue = smooth_grid(_binned(blue_s, bins, nt * ng, lambda a: np.percentile(a, 97),
+                                       ok_sky))
+
+        gap = ok_sky & (blue_s >= 0.92 * np.maximum(at(sky_blue), 1e-6))
+        sky_rgb = [smooth_grid(_binned(rgb[..., k], bins, nt * ng, np.median, gap))
+                   for k in range(3)]
+    else:
+        sky_blue, sky_rgb = reference
     ref_blue = np.maximum(at(sky_blue), 1e-6)
-    gap = ok_sky & (blue_s >= 0.92 * ref_blue)
-    ref_rgb = np.stack([np.maximum(at(smooth_grid(_binned(rgb[..., k], bins, nt * ng, np.median,
-                                                          gap))), 1e-6) for k in range(3)], -1)
+    ref_rgb = np.stack([np.maximum(at(g), 1e-6) for g in sky_rgb], -1)
     ref_lum = 0.2126 * ref_rgb[..., 0] + 0.7152 * ref_rgb[..., 1] + 0.0722 * ref_rgb[..., 2]
 
     a = 1.0 - np.clip(blue_s / ref_blue, 0.0, 1.0)
@@ -237,10 +250,22 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
     opacity = _smoothstep(0.5 * noise, 2.5 * noise, a) * a
     # Where all the blue is hidden the blueness can't tell thick from thicker: there the brightness
     # of the photo can (brighter, thicker). Without it these parts would be flat.
-    lum_rel = np.log2(np.maximum(lum, 1e-9) / np.maximum(_blur(lum, max(2, min(shape) // 80))
-                                                         if lum.ndim == 2 else lum, 1e-9))
+    if lum_blur is None:
+        lum_blur = _blur(lum, max(2, min(shape) // 80)) if lum.ndim == 2 else lum
+    lum_rel = np.log2(np.maximum(lum, 1e-9) / np.maximum(lum_blur, 1e-9))
     full = _smoothstep(0.6, 1.0, a)
     opacity *= 1.0 - full * np.clip(0.35 - 0.6 * lum_rel, 0.0, 0.6)
+    # Thin cirrus hardly dims the sky behind it but adds light to it, a lot toward the sun (ice
+    # scatters forward): that light, against the clear sky there, tells where it is too. A cloud
+    # counts as full where it adds about the sky's own light, more toward the sun. Below that it is
+    # the unevenness of the clear sky.
+    gain = lum - ref_lum * (1.0 - np.clip(a, 0.0, 1.0))
+    rel_light = gain / ref_lum
+    if rel_light.ndim == 2:
+        rel_light = _blur(rel_light, 1)
+    full_light = 1.2 * (1.0 + 3.0 * np.exp(-np.degrees(gamma) / 12.0))
+    lit = _smoothstep(0.08, 0.3, rel_light) * np.clip(rel_light / full_light, 0.0, 1.0)
+    opacity = np.maximum(opacity, lit)
     # A soft top: even thick cirrus lets a little sky through.
     opacity = np.where(opacity < 0.7, opacity, 0.7 + 0.25 * np.tanh((opacity - 0.7) / 0.25))
     # Land, trees, buildings: darker than the sky (not near the sun, where the sky is too bright
@@ -253,15 +278,19 @@ def separate_clouds(rgb, dirs, sun_dir, valid=None, noise=0.06, sun_color=(1.0, 
 
     # The light and shade inside the clouds: their brightness against the clouds around them,
     # gently (0.5 neutral). Thin parts show mostly the sky, so they count less.
-    if lum.ndim == 2:
+    log_lum = np.log2(np.maximum(lum, 1e-9))
+    if around is None and lum.ndim == 2:
         r = max(2, min(shape) // 60)
         w = np.clip(opacity, 0.0, 1.0).astype(np.float32)
-        log_lum = np.log2(np.maximum(lum, 1e-9))
         around = _blur(log_lum * w, r) / np.maximum(_blur(w, r), 1e-4)
+    if around is not None:
         rel = (log_lum - around) * _smoothstep(0.05, 0.4, opacity)
     else:
         rel = np.zeros_like(lum)
     shading = 0.5 + 0.25 * np.tanh(1.5 * rel)
+    if details:
+        extra = {'reference': (sky_blue, sky_rgb), 'lum_blur': lum_blur, 'around': around}
+        return opacity.astype(np.float32), shading.astype(np.float32), extra
     return opacity.astype(np.float32), shading.astype(np.float32)
 
 
@@ -324,8 +353,15 @@ def _fill_glare(opacity, shading, dirs, sun, inside, rotation, radius_deg=16.0):
         if best_err is None or err < best_err:
             best, best_err = angle, err
             gain = float(np.clip(ring_op.mean() / max(src_op.mean(), 1e-3), 0.6, 2.0))
+    _fill_glare.last = (best, gain) if best is not None else None
     if best is None:
         return opacity, shading
+    return _clone_glare(opacity, shading, d, g, hole, sun, rotation, radius, best, gain)
+
+
+def _clone_glare(opacity, shading, d, g, hole, sun, rotation, radius, best, gain):
+    """Fill the glare circle (`hole`, directions `d` at angles `g` from the sun) with the clouds
+    turned by `best` around the zenith, scaled by `gain`."""
     turn = best + rotation
     ct, st = math.cos(turn), math.sin(turn)
     # The source in the frame of the cloud map (photo frame turned by `rotation`, plus `turn`).
@@ -340,7 +376,7 @@ def _fill_glare(opacity, shading, dirs, sun, inside, rotation, radius_deg=16.0):
     return opacity, shading
 
 
-def cloud_map_from_equirectangular(pixels, size=2048, rotation=0.0, horizon_fade=4.0):
+def cloud_map_from_equirectangular(pixels, size=2048, rotation=0.0, horizon_fade=7.0):
     """Cloud map (size x size x 4, rows bottom to top) from an equirectangular HDRI
     (H x W x 3 or 4, rows bottom to top). `rotation` (radians) turns the photo around the zenith;
     `horizon_fade` (degrees) fades out the clouds just above the horizon, where photos have haze
@@ -348,28 +384,118 @@ def cloud_map_from_equirectangular(pixels, size=2048, rotation=0.0, horizon_fade
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', RuntimeWarning)
         with np.errstate(all='ignore'):
-            return _cloud_map_from_equirectangular(pixels, size, rotation, horizon_fade)
-
-
-def _cloud_map_from_equirectangular(pixels, size, rotation, horizon_fade):
-    dirs, inside = fisheye_directions(size)
-    if rotation:
-        ca, sa = math.cos(rotation), math.sin(rotation)
-        dx = dirs[..., 0] * ca - dirs[..., 1] * sa
-        dy = dirs[..., 0] * sa + dirs[..., 1] * ca
-        dirs = np.stack([dx, dy, dirs[..., 2]], axis=-1)
-    rgb = sample_equirectangular(pixels[..., :3].astype(np.float32), dirs)
-    # `dirs` are directions of the photo, so is its sun.
-    sun, sun_color = find_sun(pixels, with_color=True)
-    opacity, shading = separate_clouds(rgb, dirs, sun, valid=inside, sun_color=sun_color)
-    opacity, shading = _fill_glare(opacity, shading, dirs, sun, inside, rotation)
-    elevation = np.degrees(np.arcsin(np.clip(dirs[..., 2], 0.0, 1.0)))
-    opacity *= _smoothstep(0.0, max(horizon_fade, 1e-3), elevation)
+            opacity, shading = _cloud_map_from_equirectangular(pixels, size, rotation,
+                                                               horizon_fade)
     out = np.zeros((size, size, 4), dtype=np.float32)
     out[..., 0] = opacity
     out[..., 1] = shading
     out[..., 3] = 1.0
     return out
+
+
+def _reduce(pixels, max_width):
+    """`pixels` scaled down by whole blocks (averaged) to at most `max_width` wide."""
+    h, w = pixels.shape[:2]
+    step = int(math.ceil(w / max_width)) if w > max_width else 1
+    if step == 1:
+        return pixels
+    hh, ww = (h // step) * step, (w // step) * step
+    return pixels[:hh, :ww].reshape(hh // step, step, ww // step, step, -1).mean(axis=(1, 3))
+
+
+def _map_directions(size, rows, rotation):
+    """Directions (frame of the photo) of the rows `rows` (a slice) of a size x size cloud map,
+    and the mask of those above the horizon."""
+    c = (np.arange(size, dtype=np.float32) + 0.5) / size * 2.0 - 1.0
+    x, y = np.meshgrid(c, c[rows])
+    r = np.sqrt(x * x + y * y)
+    inside = r <= 1.0
+    theta = np.minimum(r, 1.0) * (math.pi / 2.0)
+    phi = np.arctan2(y, x)
+    s = np.sin(theta)
+    dx, dy = s * np.cos(phi), s * np.sin(phi)
+    if rotation:
+        ca, sa = math.cos(rotation), math.sin(rotation)
+        dx, dy = dx * ca - dy * sa, dx * sa + dy * ca
+    return np.stack([dx, dy, np.cos(theta)], axis=-1).astype(np.float32), inside
+
+
+# Size of the map on which the clear sky, the sun's glare and the light around the clouds are
+# worked out. Larger maps take these from it and only add the finer detail of the photo.
+ANALYSIS_SIZE = 2048
+
+
+def _cloud_map_from_equirectangular(pixels, size, rotation, horizon_fade):
+    rgb_full = pixels[..., :3]
+    # `dirs` are directions of the photo, so is its sun.
+    sun, sun_color = find_sun(pixels, with_color=True)
+    small = min(size, ANALYSIS_SIZE)
+    # The photo at about the detail of the small map (sampling it finer would only alias).
+    source = _reduce(rgb_full, 4 * small) if size > small else rgb_full
+    dirs, inside = _map_directions(small, slice(None), rotation)
+    rgb = sample_equirectangular(source.astype(np.float32), dirs)
+    opacity, shading, extra = separate_clouds(rgb, dirs, sun, valid=inside, sun_color=sun_color,
+                                              details=True)
+    del rgb, source
+    _fill_glare.last = None
+    opacity, shading = _fill_glare(opacity, shading, dirs, sun, inside, rotation)
+    glare = _fill_glare.last
+
+    if size > small:
+        # The fine detail: the same separation of every part of the large map, with the clear
+        # sky and the light around the clouds of the small map.
+        lum_blur, around = extra['lum_blur'], extra['around']
+        scale = small / size
+        big_opacity = np.zeros((size, size), dtype=np.float32)
+        big_shading = np.full((size, size), 0.5, dtype=np.float32)
+        strip, pad = 256, 2
+        xs = (np.arange(size, dtype=np.float32) + 0.5) * scale - 0.5
+        for y0 in range(0, size, strip):
+            y1 = min(size, y0 + strip)
+            a0, a1 = max(0, y0 - pad), min(size, y1 + pad)
+            d, ins = _map_directions(size, slice(a0, a1), rotation)
+            if not ins.any():
+                continue
+            ys = (np.arange(a0, a1, dtype=np.float32) + 0.5) * scale - 0.5
+            gx, gy = np.meshgrid(xs, ys)
+            part = sample_equirectangular(rgb_full, d)
+            op, sh = separate_clouds(part, d, sun, valid=ins, sun_color=sun_color,
+                                     reference=extra['reference'],
+                                     lum_blur=_bilinear(lum_blur, gx, gy),
+                                     around=_bilinear(around, gx, gy))
+            big_opacity[y0:y1] = op[y0 - a0:y0 - a0 + (y1 - y0)]
+            big_shading[y0:y1] = sh[y0 - a0:y0 - a0 + (y1 - y0)]
+        if glare is not None:
+            big_opacity, big_shading = _fill_glare_large(big_opacity, big_shading, sun, rotation,
+                                                         glare)
+        opacity, shading = big_opacity, big_shading
+
+    for y0 in range(0, size, 512):
+        rows = slice(y0, min(size, y0 + 512))
+        d, _ins = _map_directions(size, rows, 0.0)
+        elevation = np.degrees(np.arcsin(np.clip(d[..., 2], 0.0, 1.0)))
+        opacity[rows] *= _smoothstep(0.0, max(horizon_fade, 1e-3), elevation)
+    return opacity, shading
+
+
+def _fill_glare_large(opacity, shading, sun, rotation, glare, radius_deg=16.0):
+    """The glare fill of a large map, with the turn and gain found on the small map: only the
+    rows of the map that the glare circle touches are visited."""
+    size = opacity.shape[0]
+    radius = math.radians(radius_deg)
+    best, gain = glare
+    for y0 in range(0, size, 512):
+        rows = slice(y0, min(size, y0 + 512))
+        dirs, inside = _map_directions(size, rows, rotation)
+        gamma = np.arccos(np.clip(dirs @ np.asarray(sun, dtype=np.float32), -1.0, 1.0))
+        hole_rows = inside & (gamma < radius)
+        if not hole_rows.any():
+            continue
+        hole = np.zeros(opacity.shape, dtype=bool)
+        hole[rows] = hole_rows
+        opacity, shading = _clone_glare(opacity, shading, dirs[hole_rows], gamma[hole_rows],
+                                        hole, sun, rotation, radius, best, gain)
+    return opacity, shading
 
 
 # -----------------------------------------------------------------------------
@@ -389,17 +515,28 @@ def image_pixels(image, max_width=8192):
     return px
 
 
-def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fade=4.0):
-    """New Blender image (packed into the file) with the cloud map of an equirectangular HDRI."""
+def auto_size(width):
+    """Cloud map size for an HDRI `width` pixels wide: about as fine as the HDRI (the map's
+    radius covers 90 degrees, the HDRI's width 360), between 2048 and 8192."""
+    return int(min(8192, max(2048, 1024 * round(width / 2 / 1024))))
+
+
+def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fade=7.0):
+    """New Blender image (packed into the file) with the cloud map of an equirectangular HDRI.
+    8 bits per channel: plenty for opacity and shading, and a quarter of the memory of floats."""
     import bpy
 
-    pixels = image_pixels(source_image)
+    if size <= 0:
+        size = auto_size(source_image.size[0])
+    pixels = image_pixels(source_image, max_width=max(8192, 4 * size))
     data = cloud_map_from_equirectangular(pixels, size=size, rotation=rotation,
                                           horizon_fade=horizon_fade)
+    del pixels
     name = name or "Clouds " + source_image.name
-    image = bpy.data.images.new(name, size, size, alpha=False, float_buffer=True,
+    image = bpy.data.images.new(name, size, size, alpha=False, float_buffer=False,
                                 is_data=True)
     image.colorspace_settings.is_data = True
     image.pixels.foreach_set(data.ravel())
+    del data
     image.pack()
     return image
