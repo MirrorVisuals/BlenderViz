@@ -744,6 +744,11 @@ add_blender_test(
 )
 
 add_blender_test(
+  outliner_sort_collections
+  --python ${CMAKE_CURRENT_LIST_DIR}/bl_outliner_sort_collections.py
+)
+
+add_blender_test(
   batch_render
   --python ${CMAKE_CURRENT_LIST_DIR}/bl_batch_render.py
 )

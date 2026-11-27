@@ -396,6 +396,13 @@ stains, cracks. Add > Decal (Cylindrical, Spherical), or the Decals tab of the 3
   the sidebar lists only the selected ones.
 - Cycles only for now, without displacement.
 
+### Outliner: Sort Collections
+
+With **Sort Alphabetically** on, the collections are sorted by name too, at every level, with
+numbers in natural order (Floor 2 before Floor 10); they stay above the objects. **Sort
+Collections** (Outliner filter menu, on by default) turns that off to keep your own order of
+the collections.
+
 ### Preferences: Scene Selector Position
 
 Interface > Editors > **Scene Selector Position** puts the Scene and View Layer selectors at

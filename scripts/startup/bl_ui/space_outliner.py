@@ -443,6 +443,10 @@ class OUTLINER_PT_filter(Panel):
         if display_mode != 'DATA_API':
             col = layout.column(align=True)
             col.prop(space, "use_sort_alpha")
+            if display_mode in {'VIEW_LAYER', 'SCENES'}:
+                row = col.row(align=True)
+                row.active = space.use_sort_alpha
+                row.prop(space, "use_sort_collections")
 
         if display_mode != 'LIBRARY_OVERRIDES':
             col = layout.column(align=True)

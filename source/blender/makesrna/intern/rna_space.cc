@@ -4478,6 +4478,15 @@ static void rna_def_space_outliner(BlenderRNA *brna)
   RNA_def_property_ui_text(prop, "Sort Alphabetically", "");
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
 
+  /* BlenderViz. */
+  prop = RNA_def_property(srna, "use_sort_collections", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_negative_sdna(prop, nullptr, "flag", SO_SKIP_SORT_COLLECTIONS);
+  RNA_def_property_ui_text(prop,
+                           "Sort Collections",
+                           "With Sort Alphabetically, sort the collections by name too, numbers "
+                           "in natural order (2 before 10). Off: collections keep their own order");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
+
   prop = RNA_def_property(srna, "use_sync_select", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "flag", SO_SYNC_SELECT);
   RNA_def_property_ui_text(

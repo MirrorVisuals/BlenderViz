@@ -19,6 +19,7 @@
 #include "BLI_rect.h"
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
+#include "BLI_vector.hh"
 
 #include "BKE_layer.hh"
 #include "BKE_main.hh"
@@ -690,6 +691,46 @@ static void outliner_collections_children_sort(ListBaseT<TreeElement> *lb)
   }
 }
 
+/* BlenderViz: collections (in the View Layer and Scenes displays) sorted by name among
+ * themselves, in natural order ("Floor 2" before "Floor 10"). Each keeps one of the places the
+ * collections had in the list, so they stay before the objects. */
+static bool tree_element_is_collection(const TreeElement &te)
+{
+  const TreeStoreElem *tselem = TREESTORE(&te);
+  return tselem->type == TSE_LAYER_COLLECTION ||
+         (tselem->type == TSE_SOME_ID && te.idcode == ID_GR);
+}
+
+static void outliner_sort_collections(ListBaseT<TreeElement> *lb)
+{
+  Vector<TreeElement *> elements;
+  Vector<int> places;
+  Vector<TreeElement *> collections;
+  for (TreeElement &te : *lb) {
+    if (tree_element_is_collection(te)) {
+      places.append(int(elements.size()));
+      collections.append(&te);
+    }
+    elements.append(&te);
+  }
+  if (collections.size() > 1) {
+    std::stable_sort(
+        collections.begin(), collections.end(), [](const TreeElement *a, const TreeElement *b) {
+          return BLI_strcasecmp_natural(a->name, b->name) < 0;
+        });
+    for (const int i : places.index_range()) {
+      elements[places[i]] = collections[i];
+    }
+    lb->clear_no_delete();
+    for (TreeElement *te : elements) {
+      BLI_addtail(lb, te);
+    }
+  }
+  for (TreeElement &te : *lb) {
+    outliner_sort_collections(&te.subtree);
+  }
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1240,6 +1281,9 @@ void outliner_build_tree(Main *mainvar,
 
   if ((space_outliner->flag & SO_SKIP_SORT_ALPHA) == 0) {
     outliner_sort(&space_outliner->runtime->tree);
+    if ((space_outliner->flag & SO_SKIP_SORT_COLLECTIONS) == 0) {
+      outliner_sort_collections(&space_outliner->runtime->tree);
+    }
   }
   else if ((space_outliner->filter & SO_FILTER_NO_CHILDREN) == 0) {
     /* We group the children that are in the collection before the ones that are not.

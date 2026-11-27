@@ -154,6 +154,8 @@ enum eSpaceOutliner_Flag : short {
   SO_SYNC_SELECT = (1 << 5),
   SO_MODE_COLUMN = (1 << 6),
   SO_SCROLL_TO_ACTIVE = (1 << 7),
+  /** BlenderViz: with Sort Alphabetically, leave the collections in their own order. */
+  SO_SKIP_SORT_COLLECTIONS = (1 << 8),
 };
 ENUM_OPERATORS(eSpaceOutliner_Flag)
 
