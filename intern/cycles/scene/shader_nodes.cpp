@@ -919,13 +919,15 @@ static void sky_texture_precompute_nishita(SunSky *sunsky,
 SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
 {
   /* The sun as seen from the clouds: through less air than from the ground, so whiter, and
-   * still shining on them for a while after it has set below. */
+   * still shining on them for a while after it has set below. Low sunlight reaching a cloud
+   * comes along a path that dips below it, so it is taken at half the cloud height: warmer. */
   const float sun_size = get_sun_size();
   float bottom[3], top[3];
+  const float light_altitude = 0.5f * (cloud_altitude + altitude);
   if (sky_type == NODE_SKY_MULTIPLE_SCATTERING) {
     SKY_multiple_scattering_precompute_sun(sun_elevation,
                                            sun_size,
-                                           cloud_altitude,
+                                           light_altitude,
                                            air_density,
                                            aerosol_density,
                                            ozone_density,
@@ -934,7 +936,7 @@ SVMNodeTexSkyCloudsData SkyTextureNode::clouds_data()
   }
   else {
     SKY_single_scattering_precompute_sun(
-        sun_elevation, sun_size, cloud_altitude, air_density, aerosol_density, bottom, top);
+        sun_elevation, sun_size, light_altitude, air_density, aerosol_density, bottom, top);
   }
   /* The pixels are radiance over the sun disc: back to the irradiance of the sun. */
   const float solid_angle = M_2PI_F * (1.0f - cosf(sun_size * 0.5f));

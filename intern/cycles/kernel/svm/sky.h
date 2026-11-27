@@ -267,10 +267,23 @@ ccl_device_noinline int svm_node_tex_sky(KernelGlobals kg,
       if (dir.z > 0.0f) {
         const float3 sun_dir = spherical_to_direction(nishita.sun_elevation - M_PI_2_F,
                                                       nishita.sun_rotation - M_PI_2_F);
-        /* The sky straight up, from the same table as the sky itself. */
-        const float3 zenith_xyz = make_float3(
-            kernel_image_interp(kg, sd, nishita.texture_id, dual2(make_float2(0.5f, 1.0f))));
-        rgb = sky_cirrus(kg, sd, path_flag, clouds, normalize(dir), sun_dir, rgb, zenith_xyz);
+        /* Light around the clouds, from the same table as the sky itself (its y is
+         * sqrt(elevation / 90 degrees) / 2 + 1/2; x goes around, so a ring at any x averages). */
+        CirrusAmbient ambient;
+        float3 above = 2.0f * make_float3(kernel_image_interp(
+                                  kg, sd, nishita.texture_id, dual2(make_float2(0.5f, 1.0f))));
+        float3 horizon = zero_float3();
+        for (int k = 0; k < 6; k++) {
+          const float x = (float(k) + 0.5f) / 6.0f;
+          above += make_float3(kernel_image_interp(
+              kg, sd, nishita.texture_id, dual2(make_float2(x, 0.8118f)))); /* 35 degrees */
+          horizon += make_float3(kernel_image_interp(
+              kg, sd, nishita.texture_id, dual2(make_float2(x, 0.5913f)))); /* 3 degrees */
+        }
+        ambient.above = above * (1.0f / 8.0f);
+        /* The air near the horizon; the sunlit ground is added with the clouds' sun. */
+        ambient.below = horizon * (1.0f / 6.0f);
+        rgb = sky_cirrus(kg, sd, path_flag, clouds, normalize(dir), sun_dir, rgb, ambient);
       }
     }
   }
