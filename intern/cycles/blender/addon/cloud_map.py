@@ -516,9 +516,9 @@ def image_pixels(image, max_width=8192):
 
 
 def auto_size(width):
-    """Cloud map size for an HDRI `width` pixels wide: about as fine as the HDRI (the map's
-    radius covers 90 degrees, the HDRI's width 360), between 2048 and 8192."""
-    return int(min(8192, max(2048, 1024 * round(width / 2 / 1024))))
+    """Cloud map size for an HDRI `width` pixels wide: 8192 (about 45 pixels per degree, the
+    detail of a 16K HDRI), larger never (the memory when rendering)."""
+    return 8192
 
 
 def make_cloud_map(source_image, name=None, size=2048, rotation=0.0, horizon_fade=7.0):
